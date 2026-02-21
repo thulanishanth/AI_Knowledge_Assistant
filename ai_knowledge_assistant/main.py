@@ -1,4 +1,5 @@
 # main.py
+"""Main entry point for the AI Knowledge Assistant."""
 from langchain_module.loader import load_documents
 from langchain_module.splitter import split_documents
 from langchain_module.embeddings import get_embedding_model

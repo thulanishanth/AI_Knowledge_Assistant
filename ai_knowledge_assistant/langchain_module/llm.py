@@ -1,6 +1,5 @@
 # langchain_module/llm.py
 from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
