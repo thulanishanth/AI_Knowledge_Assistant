@@ -150,7 +150,7 @@ Create `.github/workflows/deploy.yml` with:
 
 ### Current State: 0/10
 
-- No linter configuration (`.flake8`, `ruff.toml`, `.pylintrc`)
+- No linter configuration (`.flake8`, `ruff.toml`, `.pylintrc`, `pylint`)
 - No formatter configuration (`black`, `isort`)
 - No pre-commit hooks (`.pre-commit-config.yaml`)
 
