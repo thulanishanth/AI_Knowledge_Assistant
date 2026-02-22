@@ -1,4 +1,5 @@
 # langchain_module/logger.py
+"""Module to configure centralized logging for the application."""
 import logging
 import os
 
@@ -15,4 +16,5 @@ logging.basicConfig(
 )
 
 def get_logger(name: str):
+    """Create and return a logger instance for the specified module name."""
     return logging.getLogger(name)
