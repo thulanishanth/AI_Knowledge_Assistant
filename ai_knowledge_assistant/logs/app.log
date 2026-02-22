@@ -1,0 +1,21 @@
+2026-02-21 23:52:42,368 - langchain_module.loader - INFO - Loading documents from data/Top 50 Java Interview Questions For Freshers.pdf
+2026-02-21 23:52:42,871 - langchain_module.loader - INFO - Loaded 5 documents
+2026-02-21 23:52:42,871 - langchain_module.splitter - INFO - Splitting documents into chunks
+2026-02-21 23:52:42,873 - langchain_module.splitter - INFO - Documents split into 10 chunks
+2026-02-21 23:52:42,873 - langchain_module.embeddings - INFO - Loading embedding model: sentence-transformers/all-MiniLM-L6-v2
+2026-02-21 23:52:43,322 - langchain_module.embeddings - INFO - Embedding model loaded successfully
+2026-02-21 23:52:43,322 - langchain_module.vector_store - INFO - Creating vector store from 10 chunks
+2026-02-21 23:52:44,794 - faiss.loader - INFO - Loading faiss with AVX2 support.
+2026-02-21 23:52:44,832 - faiss.loader - INFO - Successfully loaded faiss with AVX2 support.
+2026-02-21 23:52:44,843 - langchain_module.vector_store - INFO - Vector store created with 10 vectors
+2026-02-21 23:52:44,844 - langchain_module.retriever - INFO - Creating retriever from vector store
+2026-02-21 23:52:44,844 - langchain_module.retriever - INFO - Retriever created successfully
+2026-02-21 23:52:45,158 - __main__ - INFO - Sample context retrieved (4 docs)
+2026-02-21 23:52:45,159 - langchain_module.llm - INFO - Loading LLM model: Qwen/Qwen2.5-7B-Instruct
+2026-02-21 23:52:45,188 - langchain_module.llm - INFO - LLM model loaded and wrapped for chat
+2026-02-21 23:52:45,188 - langchain_module.prompt - INFO - Creating chat prompt template
+2026-02-21 23:52:45,190 - langchain_module.prompt - INFO - Prompt template created successfully
+2026-02-21 23:52:45,191 - langchain_module.rag_chain - INFO - Creating RAG chain
+2026-02-21 23:52:45,191 - langchain_module.rag_chain - INFO - RAG chain created successfully
+2026-02-21 23:52:59,354 - __main__ - INFO - Question: what is java | Answer: Java is a high-level, object-oriented programming language designed for platform independence, achieved through the Java Virtual Machine (JVM). It allows developers to write code once and run it anywhere, as the JVM translates the bytecode into machine-specific instructions at runtime.
+2026-02-21 23:53:53,024 - __main__ - INFO - User exited the session
