@@ -1,3 +1,5 @@
+# langchain_module/embeddings.py
+"""Module to initialize the document embedding model."""
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from dotenv import load_dotenv
 from langchain_module.logger import get_logger
