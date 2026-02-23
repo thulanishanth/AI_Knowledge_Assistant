@@ -8,6 +8,7 @@ load_dotenv()
 logger = get_logger(__name__)
 
 def get_embedding_model():
+    """Load and return the HuggingFace sentence transformer embedding model."""
     logger.info("Loading embedding model: sentence-transformers/all-MiniLM-L6-v2")
     model = HuggingFaceEndpointEmbeddings(
         model="sentence-transformers/all-MiniLM-L6-v2",

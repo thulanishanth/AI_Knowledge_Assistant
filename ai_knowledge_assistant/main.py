@@ -15,32 +15,23 @@ logger = get_logger(__name__)
 try:
     # Load documents
     documents = load_documents("data/Top 50 Java Interview Questions For Freshers.pdf")
-    
     # Split documents
     chunks = split_documents(documents)
-    
     # Embeddings
     embeddings_model = get_embedding_model()
-    
     # Vector Store
     vector_store = create_vector_store(chunks, embeddings_model)
-    
     # Retriever
     retriever = create_retriever(vector_store)
-
     # Debug sample retrieval
     sample_docs = retriever.invoke("What is constructor?")
-    logger.info(f"Sample context retrieved ({len(sample_docs)} docs)")
-
+    logger.info("Sample context retrieved (%s docs)", len(sample_docs))
     # LLM
     llm = load_llm_model()
-    
     # Prompt
     prompt = get_prompt()
-    
     # RAG Chain
     rag_chain = create_rag_chain(llm, retriever, prompt)
-    
     # User Interaction Loop
     while True:
         question = input("\nAsk your question: ")
@@ -48,8 +39,8 @@ try:
             logger.info("User exited the session")
             break
         answer = rag_chain.invoke(question)
-        logger.info(f"Question: {question} | Answer: {answer}")
+        logger.info("Question: %s | Answer: %s", question, answer)
         print(answer)
-
+        # pylint: disable=broad-exception-caught
 except Exception as e:
-    logger.exception(f"An error occurred: {e}")
+    logger.exception("An error occurred: %s",  e)

@@ -1,3 +1,4 @@
+"""importing modules"""
 from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
 from dotenv import load_dotenv
 from langchain_module.logger import get_logger
@@ -6,6 +7,7 @@ load_dotenv()
 logger = get_logger(__name__)
 
 def load_llm_model():
+    """loading LLM model"""
     logger.info("Loading LLM model: Qwen/Qwen2.5-7B-Instruct")
     llm = HuggingFaceEndpoint(
         repo_id="Qwen/Qwen2.5-7B-Instruct",
