@@ -1,8 +1,12 @@
-# langchain_module/prompt.py
-# langchain_module/prompt.py
+"""Module to define the system and chat prompts for the AI."""
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_module.logger import get_logger
+
+logger = get_logger(__name__)
 
 def get_prompt():
+    """Create and return the formatted chat prompt template."""
+    logger.info("Creating chat prompt template")
     system_prompt = """
     You are an expert Java instructor.
 
@@ -17,8 +21,9 @@ def get_prompt():
     Context:
     {context}
     """
-    
-    return ChatPromptTemplate.from_messages([
+    prompt_template = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
         ("human", "{question}")
     ])
+    logger.info("Prompt template created successfully")
+    return prompt_template

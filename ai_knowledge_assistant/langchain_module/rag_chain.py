@@ -1,8 +1,14 @@
-# langchain_module/rag_chain.py
+"""Module to assemble the Retrieval-Augmented Generation (RAG) chain."""
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
+from langchain_module.logger import get_logger
+
+logger = get_logger(__name__)
 
 def create_rag_chain(llm, retriever, prompt):
+    """Build the RAG pipeline connecting the retriever, prompt, and LLM."""
+    logger.info("Creating RAG chain")
+
     def format_docs(docs):
         return "\n\n".join(doc.page_content for doc in docs)
 
@@ -13,7 +19,7 @@ def create_rag_chain(llm, retriever, prompt):
         }
         | prompt
         | llm
-        | StrOutputParser() # Extracts the clean text string from the AI's chat response
+        | StrOutputParser()
     )
-
+    logger.info("RAG chain created successfully")
     return rag_chain
