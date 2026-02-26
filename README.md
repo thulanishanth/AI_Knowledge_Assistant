@@ -1,4 +1,3 @@
-Below is a **production-style `README.md`** tailored to the codebase you shared (LangChain RAG project for Java interview Q&A). You can copy this directly into your repository.
 
 ---
 
