@@ -1,5 +1,7 @@
-import sqlparse
+#app/sql/validator.py
+"""Module for validating and sanitizing AI-generated SQL queries."""
 import logging
+import sqlparse
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,6 @@ def validate_sql(query: str) -> tuple[bool, str]:
 
     # 3. Prevent massive data dumps by enforcing a LIMIT if one doesn't exist
     if "LIMIT" not in query_upper:
-        logger.info("LIMIT clause missing, but query is otherwise safe. (Consider appending LIMIT programmatically).")
+        logger.info("LIMIT clause missing, but query is otherwise safe.")
 
     return True, "Query is safe to execute."

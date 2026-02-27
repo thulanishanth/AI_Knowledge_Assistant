@@ -1,7 +1,9 @@
+#app/database/connection.py
+"""Database connection and session management."""
+import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.config import settings
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,7 @@ Base = declarative_base()
 
 # 5. Dependency injection for FastAPI routes
 def get_db():
+    """Dependency to provide a database session for requests."""
     db = SessionLocal()
     try:
         yield db

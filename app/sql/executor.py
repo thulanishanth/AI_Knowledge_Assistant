@@ -1,7 +1,9 @@
+#app/sql/executor.py
+"""Execution logic for validated SQL queries."""
+import logging
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from app.database.connection import SessionLocal
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +23,8 @@ def execute_safe_query(sql_query: str) -> list[dict]:
         
     except SQLAlchemyError as e:
         # Log the actual database error server-side, but don't expose DB internals to the user
-        logger.error(f"Database execution error: {e}")
-        raise ValueError("An error occurred while executing the query on the database.")
+        logger.error("Database execution error: %s", e)
+        raise ValueError("An error occurred while executing the query on the database.") from e
         
     finally:
         db.close()

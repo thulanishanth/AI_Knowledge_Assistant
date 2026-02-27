@@ -1,48 +1,47 @@
+"""Entry point for the Hotel AI Assistant FastAPI application."""
+import logging
 from fastapi import FastAPI, HTTPException
 from app.schemas import QueryRequest, QueryResponse
 from app.sql.validator import validate_sql
 from app.sql.executor import execute_safe_query
-import logging
+from app.services.hf_client import generate_sql
 
-# Set up logging to monitor our API and security alerts
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize the FastAPI application
 app = FastAPI(title="Hotel AI Assistant API", version="1.0.0")
 
-@app.get("/health")
-def health_check():
-    """Simple endpoint to verify the API is running."""
-    return {"status": "healthy", "service": "online"}
-
 @app.post("/query", response_model=QueryResponse)
-def process_query(request: QueryRequest):
-    """
-    Main endpoint for query processing.
-    Currently configured to accept raw SQL to test the validation firewall.
-    """
-    # NOTE: Since the LLM is paused, we are treating the user's 'question' 
-    # input directly as the SQL query to test the pipeline.
-    proposed_sql = request.question 
-    
-    # 1. Security Firewall: Validate the SQL
-    is_valid, validation_msg = validate_sql(proposed_sql)
-    
-    if not is_valid:
-        logger.warning(f"SECURITY ALERT: Blocked query -> {validation_msg}")
-        # Return a 400 Bad Request if the SQL violates our security policies
-        raise HTTPException(status_code=400, detail=validation_msg)
-        
-    # 2. Execution: Run the validated query against MySQL
+async def process_query(request: QueryRequest):
+    """Converts natural language to SQL and executes it securely."""
     try:
+        # 1. AI Generation
+        logger.info("Generating SQL for question: %s", request.question)
+        proposed_sql = generate_sql(request.question)
+        logger.info("AI Proposed SQL: %s", proposed_sql)
+        
+        # 2. Security Firewall
+        is_valid, validation_msg = validate_sql(proposed_sql)
+        if not is_valid:
+            logger.warning("SECURITY ALERT: Blocked AI-generated query -> %s", validation_msg)
+            raise HTTPException(status_code=400, detail=validation_msg)
+            
+        # 3. Execution
         results = execute_safe_query(proposed_sql)
+        
         return QueryResponse(
             status="success",
             sql_query=proposed_sql,
             results=results,
-            message="Query validated and executed securely."
+            message="Query processed successfully."
         )
+
+    except ValueError as ve:
+        # This catches the 503/Loading errors from hf_client.py
+        logger.error("AI Client Error: %s", ve)
+        raise HTTPException(status_code=502, detail=f"AI Service Error: {str(ve)}") from ve
+    
     except Exception as e:
-        logger.error(f"Execution failed: {e}")
-        raise HTTPException(status_code=500, detail="Database execution failed.")
+        # General catch-all for DB or unexpected logic errors
+        logger.error("System Failure: %s", e)
+        raise HTTPException(status_code=500, detail="An internal server error occurred.") from e

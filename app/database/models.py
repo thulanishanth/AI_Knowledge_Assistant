@@ -1,39 +1,29 @@
-from sqlalchemy import Column, Integer, String, Numeric, Date, ForeignKey
-from sqlalchemy.orm import relationship
+#app/database/models.py
+"""Database models for the Kaggle Hotel Reservations dataset."""
+from sqlalchemy import Column, Integer, String, Numeric
 from app.database.connection import Base
 
-class Room(Base):
-    __tablename__ = "rooms"
+# pylint: disable=too-few-public-methods
+class HotelReservation(Base):
+    """Model representing the hotel_reservations table."""
+    __tablename__ = "hotel_reservations"
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    room_number = Column(Integer, nullable=False, unique=True)
-    room_type = Column(String(50), nullable=False)
-    price = Column(Numeric(10, 2), nullable=False)
-    status = Column(String(20), default="available")
-
-    # Establish a one-to-many relationship with bookings
-    bookings = relationship("Booking", back_populates="room")
-
-class Booking(Base):
-    __tablename__ = "bookings"
-
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    customer_name = Column(String(100), nullable=False)
-    room_id = Column(Integer, ForeignKey("rooms.id"))
-    check_in = Column(Date, nullable=False)
-    check_out = Column(Date, nullable=False)
-
-    # Map the relationships back to rooms and forward to payments
-    room = relationship("Room", back_populates="bookings")
-    payments = relationship("Payment", back_populates="booking")
-
-class Payment(Base):
-    __tablename__ = "payments"
-
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    booking_id = Column(Integer, ForeignKey("bookings.id"))
-    amount = Column(Numeric(10, 2), nullable=False)
-    payment_date = Column(Date, nullable=False)
-
-    # Map the relationship back to the booking
-    booking = relationship("Booking", back_populates="payments")
+    booking_id = Column(String(255), primary_key=True, index=True)
+    no_of_adults = Column(Integer)
+    no_of_children = Column(Integer)
+    no_of_weekend_nights = Column(Integer)
+    no_of_week_nights = Column(Integer)
+    type_of_meal_plan = Column(String(255))
+    required_car_parking_space = Column(Integer)
+    room_type_reserved = Column(String(255))
+    lead_time = Column(Integer)
+    arrival_year = Column(Integer)
+    arrival_month = Column(Integer)
+    arrival_date = Column(Integer)
+    market_segment_type = Column(String(255))
+    repeated_guest = Column(Integer)
+    no_of_previous_cancellations = Column(Integer)
+    no_of_previous_bookings_not_canceled = Column(Integer)
+    avg_price_per_room = Column(Numeric(10, 2))
+    no_of_special_requests = Column(Integer)
+    booking_status = Column(String(255))
