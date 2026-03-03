@@ -1,389 +1,110 @@
+# AI Knowledge Assistant
 
----
+An AI-powered FastAPI application that translates natural language questions into reliable answers using retrieval, validation, and SQL-aware orchestration.
 
-# AI Knowledge Assistant (RAG-based Java Interview Chatbot)
+## Features
 
-A Retrieval-Augmented Generation (RAG) chatbot built using **LangChain**, **FAISS**, and **Hugging Face models**.
-This assistant answers **Java interview questions** by retrieving relevant information from a PDF and generating concise explanations.
+- Natural-language chat interface served from `/`
+- REST API endpoint for chat requests: `POST /api/chat/`
+- Confidence scoring returned with each answer
+- SQL validation and execution pipeline for data-backed queries
+- Configurable environment via `.env`
+- Request-level structured logging with request IDs
 
-The system is designed with a **modular architecture**, logging, and clean separation of concerns to make it closer to **production-ready AI systems**.
+## Project Structure
 
----
-
-# Project Architecture
-
-```
-AI_Knowledge_Assistant/
-│
-├── data/
-│   └── Top 50 Java Interview Questions For Freshers.pdf
-│
-├── langchain_module/
-│   ├── embeddings.py
-│   ├── llm.py
-│   ├── loader.py
-│   ├── splitter.py
-│   ├── vector_store.py
-│   ├── retriever.py
-│   ├── prompt.py
-│   ├── rag_chain.py
-│   └── logger.py
-│
-├── logs/
-│   └── app.log
-│
-├── main.py
-├── .env
-├── .env.example
-├── requirements.txt
-└── README.md
+```text
+app/
+  api/            # FastAPI route handlers
+  db/             # MySQL access and schema helpers
+  services/       # LLM, retrieval, SQL, intent, formatting logic
+  utils/          # Logging and shared helpers
+  data/           # Prompt/reference text files
+scripts/
+  run_lint.ps1    # Lint entrypoint
 ```
 
----
+## Prerequisites
 
-# How the System Works (RAG Pipeline)
+- Python 3.10+
+- MySQL (for SQL-backed assistant flows)
+- `pip`
 
-```
-PDF → Load Documents → Split into Chunks
-→ Convert Chunks to Embeddings
-→ Store in FAISS Vector Database
-→ Retrieve Relevant Context
-→ Send Context + Question to LLM
-→ Generate Answer
-```
+## Quick Start
 
-Step-by-step flow:
+1. Create and activate a virtual environment.
 
-1. Load interview questions PDF
-2. Split text into manageable chunks
-3. Convert chunks into embeddings
-4. Store embeddings in FAISS vector database
-5. Retrieve relevant context based on user query
-6. Send context + question to LLM
-7. LLM generates answer
-
----
-
-# Features
-
-• Modular and clean architecture
-• Logging system for debugging and monitoring
-• Retrieval-Augmented Generation (RAG) pipeline
-• FAISS vector database for fast similarity search
-• Hugging Face embedding model
-• Qwen LLM for responses
-• Interactive CLI chatbot
-• Production-ready code structure
-
----
-
-# Technologies Used
-
-| Component       | Technology                             |
-| --------------- | -------------------------------------- |
-| LLM             | Qwen2.5-7B-Instruct                    |
-| Embeddings      | sentence-transformers/all-MiniLM-L6-v2 |
-| Framework       | LangChain                              |
-| Vector Database | FAISS                                  |
-| Language        | Python                                 |
-| Logging         | Python logging                         |
-| Document Loader | PyPDFLoader                            |
-
----
-
-# Installation
-
-## 1 Install Python
-
-Python 3.10 or above recommended.
-
-Check version:
-
-```bash
-python --version
-```
-
----
-
-## 2 Clone Repository
-
-```bash
-git clone https://github.com/yourusername/ai-knowledge-assistant.git
-cd ai-knowledge-assistant
-```
-
----
-
-## 3 Create Virtual Environment
-
-Windows:
-
-```bash
+```powershell
 python -m venv venv
-venv\Scripts\activate
+.\venv\Scripts\Activate.ps1
 ```
 
-Mac/Linux:
+2. Install dependencies.
 
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
----
-
-## 4 Install Dependencies
-
-```bash
+```powershell
 pip install -r requirements.txt
 ```
 
----
+3. Configure environment variables in `.env`.
 
-# Environment Variables
+4. Start the API server.
 
-Create a `.env` file.
-
-Example:
-
-```
-HUGGINGFACEHUB_API_TOKEN=your_api_key_here
+```powershell
+uvicorn app.main:app --reload
 ```
 
----
+5. Open `http://127.0.0.1:8000`.
 
-# Example `.env.example`
+## Configuration
 
-```
-HUGGINGFACEHUB_API_TOKEN=your_huggingface_api_key
-```
+Supported environment variables (with defaults where defined in code):
 
----
+- `DB_HOST` (`localhost`)
+- `DB_PORT` (`3306`)
+- `DB_USER` (`root`)
+- `DB_PASSWORD` (empty)
+- `DB_NAME` (`hotel_db`)
+- `DB_TABLE` (`hotel_reservations`)
+- `HF_API_KEY` (empty)
+- `HF_MODEL` (`katanemo/Arch-Router-1.5B`)
+- `CLOUD_API_KEY` (empty)
+- `MAX_QUERY_RESULTS` (`10`)
+- `LOG_LEVEL` (`INFO`)
+- `LOG_FILE` (empty; logs to console when unset)
 
-# Running the Project
+## API Usage
 
-Run the chatbot:
+### Chat Endpoint
 
-```bash
-python main.py
-```
+- Method: `POST`
+- Path: `/api/chat/`
+- Content-Type: `application/json`
 
-Example interaction:
+Request body:
 
-```
-Ask your question: What is constructor in Java?
-```
-
-Output:
-
-```
-A constructor in Java is a special method used to initialize objects...
-```
-
-To exit:
-
-```
-exit
-```
-
----
-
-# Project Modules Explained
-
-## embeddings.py
-
-Initializes the embedding model used to convert text into vector representations.
-
-Model used:
-
-```
-sentence-transformers/all-MiniLM-L6-v2
+```json
+{
+  "question": "How many confirmed bookings do we have?"
+}
 ```
 
----
+Response body:
 
-## llm.py
-
-Loads the Large Language Model used to generate responses.
-
-Model:
-
-```
-Qwen/Qwen2.5-7B-Instruct
+```json
+{
+  "answer": "...",
+  "confidence": 0.92
+}
 ```
 
-This is wrapped using:
+## Linting
 
-```
-ChatHuggingFace
-```
-
----
-
-## loader.py
-
-Responsible for loading documents from PDF.
-
-Library used:
-
-```
-PyPDFLoader
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_lint.ps1
 ```
 
----
+## Development Notes
 
-## splitter.py
-
-Splits documents into smaller chunks for better retrieval.
-
-Configuration:
-
-```
-chunk_size = 1000
-chunk_overlap = 200
-```
-
----
-
-## vector_store.py
-
-Creates FAISS vector database from document embeddings.
-
-Purpose:
-Fast similarity search.
-
----
-
-## retriever.py
-
-Retrieves the most relevant chunks from vector database.
-
-Configuration:
-
-```
-Top K results = 4
-```
-
----
-
-## prompt.py
-
-Defines the system prompt used by the LLM.
-
-Key rules:
-• Use only provided context
-• Explain clearly
-• Answer in 3–5 sentences
-• If answer missing → say "I don't know"
-
----
-
-## rag_chain.py
-
-Builds the RAG pipeline combining:
-
-Retriever
-Prompt
-LLM
-Output parser
-
----
-
-## logger.py
-
-Centralized logging system.
-
-Logs saved to:
-
-```
-logs/app.log
-```
-
----
-
-# Example Logs
-
-```
-INFO - Loading documents
-INFO - Splitting documents
-INFO - Creating vector store
-INFO - Loading LLM model
-INFO - RAG chain created successfully
-```
-
----
-
-# Linting Configuration
-
-This project uses **Pylint configuration** for code quality.
-
-Key rules:
-
-• Snake case naming
-• Max line length: 100
-• Modular design
-• Code quality score enabled
-
-Run lint check:
-
-```
-pylint .
-```
-
----
-
-# Production Improvements (Recommended)
-
-If you want to move this to **production level**, implement:
-
-### 1 Replace CLI with FastAPI
-
-Supports multiple users.
-
-### 2 Add Caching
-
-Use Redis for faster responses.
-
-### 3 Add Vector Store Persistence
-
-Save FAISS index locally.
-
-### 4 Add Async LLM Calls
-
-Improves performance.
-
-### 5 Add Security Layer
-
-Validate user inputs.
-
----
-
-# Future Enhancements
-
-Planned improvements:
-
-• Web UI (Streamlit or React)
-• Multi-PDF support
-• Conversation memory
-• Multi-language coding assistant
-• Deployment (Docker + Cloud)
-
----
-
-# Example Questions to Try
-
-```
-What is JVM?
-Explain polymorphism
-What is a constructor?
-Difference between JDK and JRE
-What is multithreading?
-```
-
----
-
-# License
-
-MIT License
-
----
+- Keep secrets in `.env`; do not commit credentials.
+- Run lint checks before pushing changes.
+- Review database connectivity and schema settings before local testing.
