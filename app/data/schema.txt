@@ -1,0 +1,19 @@
+# Database Schema for AI Knowledge Assistant
+
+-- Users Table
+CREATE TABLE users (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100),
+    email VARCHAR(100) UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Orders Table
+CREATE TABLE orders (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT,
+    product VARCHAR(100),
+    quantity INT,
+    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
