@@ -1,0 +1,16 @@
+# Example Questions and Answers for AI Knowledge Assistant
+
+Q: How many users are registered in the system?
+A: SELECT COUNT(*) FROM users;
+
+Q: List all orders made by user with id 5.
+A: SELECT * FROM orders WHERE user_id = 5;
+
+Q: Show the name and email of all users.
+A: SELECT name, email FROM users;
+
+Q: How many orders have been placed today?
+A: SELECT COUNT(*) FROM orders WHERE DATE(order_date) = CURDATE();
+
+Q: Get all products ordered with quantity more than 10.
+A: SELECT * FROM orders WHERE quantity > 10;
