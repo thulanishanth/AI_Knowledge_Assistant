@@ -1,3 +1,6 @@
+"""
+Validation logic to ensure generated SQL queries are safe and read-only.
+"""
 import re
 from app.config import DB_TABLE
 from app.utils.logger import get_logger
@@ -42,7 +45,11 @@ def validate_sql(sql_query: str) -> bool:
 
     allowed_table = DB_TABLE.lower()
     if referenced_tables != {allowed_table}:
-        logger.warning("SQL rejected: table scope mismatch. referenced=%s allowed=%s", referenced_tables, allowed_table)
+        logger.warning(
+            "SQL rejected: table scope mismatch. referenced=%s allowed=%s", 
+            referenced_tables,
+            allowed_table
+        )
         return False
 
     logger.debug("SQL query validated successfully")

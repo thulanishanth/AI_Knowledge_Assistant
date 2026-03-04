@@ -1,5 +1,8 @@
 # app/services/formatter.py
-
+"""
+Formatting utilities for converting raw data and LLM outputs into 
+clean, user-friendly natural language responses.
+"""
 def format_answer(answer: str) -> str:
     """
     Basic formatting for general answers.

@@ -1,3 +1,4 @@
+"""General utility functions and helpers for the application."""
 import re
 
 def clean_text(text: str) -> str:

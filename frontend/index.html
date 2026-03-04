@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Knowledge Assistant | Studio</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo-icon"></div>
+                <span>Assistant Studio</span>
+                
+                <button id="theme-toggle" class="theme-btn" title="Toggle Light/Dark Mode">
+                    <svg id="theme-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <button class="new-query-btn" id="clear-chat">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px; vertical-align: middle;">
+                    <path d="M12 5v14M5 12h14"/>
+                </svg>
+                New Query
+            </button>
+
+            <nav class="history-list">
+                <div class="history-label">Recent History</div>
+                <div class="history-item active">Current Session</div>
+                <div class="history-item">Database Insights</div>
+                <div class="history-item">Table Schema View</div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-profile">
+                    <div class="avatar">U</div>
+                    <div class="user-info">
+                        <div class="username">User Account</div>
+                        <div class="user-status">Standard Access</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-stage">
+            <header class="stage-header">
+                <h2>Knowledge Assistant <span class="badge">v1.1</span></h2>
+                <div class="connection-status">
+                    <span class="status-dot"></span> MySQL Connected
+                </div>
+            </header>
+
+            <section id="chat-container" class="chat-viewport">
+                <div class="msg bot-msg">
+                    <div class="msg-content">
+                        Hello! I am your AI Knowledge Assistant. I can help you query your database using natural language.
+                        <br><br>
+                        Try asking: <em>"How many confirmed bookings do we have?"</em> or <em>"Show me the latest records from the database."</em>
+                    </div>
+                </div>
+            </section>
+
+            <footer class="input-area">
+                <form id="chat-form" class="composer">
+                    <textarea 
+                        id="user-input" 
+                        placeholder="Type your question here..." 
+                        rows="1"
+                        spellcheck="false"
+                    ></textarea>
+                    
+                    <button type="submit" id="send-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="22" y1="2" x2="11" y2="13"></line>
+                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                        </svg>
+                    </button>
+                </form>
+                <p class="disclaimer">
+                    The assistant generates SQL queries based on your schema. Please verify critical results.
+                </p>
+            </footer>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,4 +1,7 @@
 # app/services/query_service.py
+"""
+Orchestrates the entire query processing pipeline from intent classification to execution.
+"""
 import re
 
 from app.services.intent_classifier import classify_intent
@@ -36,6 +39,9 @@ def _extract_sql(llm_output: str) -> str:
 
 
 def _is_greeting(text: str) -> bool:
+    """
+    Check if the provided text is a standard conversational greeting.
+    """
     normalized = " ".join((text or "").lower().strip().split())
     greetings = {
         "hi",
@@ -50,6 +56,7 @@ def _is_greeting(text: str) -> bool:
     return normalized in greetings
 
 def handle_query(user_question: str):
+    """Process the user question through the pipeline to generate an answer."""
     if not user_question or not user_question.strip():
         raise ValueError("Question cannot be empty.")
 

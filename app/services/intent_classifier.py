@@ -1,3 +1,4 @@
+"""Provides intent classification to determine if a query is SQL-related or general."""
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)

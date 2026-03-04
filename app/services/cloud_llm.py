@@ -1,4 +1,8 @@
 # app/services/cloud_llm.py
+"""
+Service for interacting with the Hugging Face Cloud LLM API.
+Provides utility functions to generate text using hosted inference models.
+"""
 import requests
 from app.config import HF_API_KEY
 from app.utils.logger import get_logger
