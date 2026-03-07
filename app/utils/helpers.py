@@ -1,3 +1,5 @@
+# AI_Knowledge_Assistant/app/utils/helpers.py
+"""General-purpose text cleaning and sanitization utilities."""
 import re
 
 def clean_text(text: str) -> str:

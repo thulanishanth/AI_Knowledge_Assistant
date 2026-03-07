@@ -1,19 +1,15 @@
-# app/services/formatter.py
+# AI_Knowledge_Assistant/app/services/formatter.py
+"""Formatting helpers for user-facing answer text."""
 
 def format_answer(answer: str) -> str:
-    """
-    Basic formatting for general answers.
-    """
+    """Normalize a general answer string."""
     if not answer:
         return "No answer generated."
     return answer.strip()
 
 
-def format_sql_results(results, _user_question: str) -> str:
-    """
-    Converts SQL query results into a natural language response.
-    Supports single row and multiple row outputs.
-    """
+def format_sql_results(results: list[dict[str, object]], _user_question: str) -> str:
+    """Convert SQL rows into compact human-readable response text."""
 
     if not results:
         return "No data found for your query."

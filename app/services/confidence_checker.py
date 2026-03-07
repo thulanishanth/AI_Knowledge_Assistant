@@ -1,3 +1,5 @@
+# AI_Knowledge_Assistant/app/services/confidence_checker.py
+"""Heuristic confidence checker for generated answers."""
 def check_confidence(answer: str, _context: str) -> float:
     """
     Check the confidence of an answer.

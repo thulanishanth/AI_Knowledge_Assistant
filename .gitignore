@@ -41,7 +41,19 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+.chroma
 
 # Local databases
 *.sqlite3
 *.db
+
+
+# ---------------------------------------------------
+# Node.js / Frontend
+# ---------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.eslintcache
+.stylelintcache

@@ -1,28 +1,33 @@
-import os
-from typing import Optional
+#AI_Knowledge_Assistant/app/config.py
+"""Backward-compatible config exports.
 
-from dotenv import load_dotenv
+New code should import `app.core.config.settings`.
+"""
 
-load_dotenv()
+from app.core.config import settings
 
+DB_HOST = settings.db_host
+DB_PORT = settings.db_port
+DB_USER = settings.db_user
+DB_PASSWORD = settings.db_password
+DB_NAME = settings.db_name
+DB_TABLE = settings.db_table
 
-def _get_env_int(name: str, default: int) -> int:
-    value: Optional[str] = os.getenv(name)
-    if value is None or value.strip() == "":
-        return default
-    return int(value)
+HF_API_KEY = settings.hf_api_key
+HF_MODEL = settings.hf_model
+CLOUD_API_KEY = settings.cloud_api_key
+MAX_QUERY_RESULTS = settings.max_query_results
+LOG_LEVEL = settings.log_level
+LOG_FILE = settings.log_file
 
-
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = _get_env_int("DB_PORT", 3306)
-DB_USER = os.getenv("DB_USER", "root")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_NAME = os.getenv("DB_NAME", "hotel_db")
-DB_TABLE = os.getenv("DB_TABLE", "hotel_reservations")
-
-HF_API_KEY = os.getenv("HF_API_KEY", "")
-HF_MODEL = os.getenv("HF_MODEL", "katanemo/Arch-Router-1.5B")
-CLOUD_API_KEY = os.getenv("CLOUD_API_KEY", "")
-MAX_QUERY_RESULTS = _get_env_int("MAX_QUERY_RESULTS", 10)
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-LOG_FILE = os.getenv("LOG_FILE", "")
+CHROMA_SERVER_HOST = settings.chroma_server_host
+CHROMA_SERVER_PORT = settings.chroma_server_port
+VECTOR_COLLECTION_USER = settings.vector_collection_user
+VECTOR_COLLECTION_KNOWLEDGE = settings.vector_collection_knowledge
+WINDOW_MEMORY_SIZE = settings.window_memory_size
+TOP_K_RETRIEVAL = settings.top_k_retrieval
+EMBEDDING_MODEL = settings.embedding_model
+ENABLE_TRACING = settings.enable_tracing
+ENABLE_METRICS = settings.enable_metrics
+MEMORY_TTL_DAYS = settings.memory_ttl_days
+ENABLE_RERANKING = settings.enable_reranking

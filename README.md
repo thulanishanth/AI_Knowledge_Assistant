@@ -8,6 +8,11 @@ An AI-powered FastAPI application that translates natural language questions int
 - REST API endpoint for chat requests: `POST /api/chat/`
 - Confidence scoring returned with each answer
 - SQL validation and execution pipeline for data-backed queries
+- Hybrid conversational memory (vector + window + summary + RAG)
+- Multi-user session-aware context retrieval (`user_id` + `session_id`)
+- Vector store abstraction with Chroma adapter
+- Re-ranking pipeline for improved retrieval relevance
+- TTL-based memory lifecycle cleanup
 - Configurable environment via `.env`
 - Request-level structured logging with request IDs
 
@@ -15,6 +20,10 @@ An AI-powered FastAPI application that translates natural language questions int
 
 ```text
 app/
+  core/           # Config, DI, session resolution
+  memory/         # Memory manager, vector/window/summary modules
+  vector_store/   # Vector abstraction + Chroma adapter
+  observability/  # Metrics, tracing, structured events
   api/            # FastAPI route handlers
   db/             # MySQL access and schema helpers
   services/       # LLM, retrieval, SQL, intent, formatting logic
@@ -84,7 +93,9 @@ Request body:
 
 ```json
 {
-  "question": "How many confirmed bookings do we have?"
+  "question": "How many confirmed bookings do we have?",
+  "user_id": "u_123",
+  "session_id": "sess_abc123"
 }
 ```
 
@@ -93,7 +104,8 @@ Response body:
 ```json
 {
   "answer": "...",
-  "confidence": 0.92
+  "confidence": 0.92,
+  "session_id": "sess_abc123"
 }
 ```
 

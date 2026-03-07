@@ -1,0 +1,395 @@
+/* =========================================
+   1. VARIABLES & THEME MANAGEMENT
+   ========================================= */
+:root {
+    /* Dark Mode (Default) */
+    --bg-main: #0D1117;
+    --bg-sidebar: #161B22;
+    --accent: #2FD3B6;
+    --accent-hover: #26b19a;
+    --text-primary: #e6eDf3;
+    --text-muted: #8b949e;
+    --border-color: rgb(240 246 252/ 10%);
+    --bubble-bot: #21262d;
+    --bubble-user: #1f3d4e;
+    --shadow: 0 8px 24px rgb(0 0 0 / 20%);
+    --input-bg: #161b22;
+}
+
+body.light-mode {
+    /* Light Mode Overrides */
+    --bg-main: #fff;
+    --bg-sidebar: #f6f8fa;
+    --accent: #00a67e;
+    --accent-hover: #008f6d;
+    --text-primary: #1f2328;
+    --text-muted: #656d76;
+    --border-color: #d0d7de;
+    --bubble-bot: #f6f8fa;
+    --bubble-user: #e1f5fe;
+    --shadow: 0 4px 12px rgb(0 0 0 / 8%);
+    --input-bg: #fff;
+}
+
+/* =========================================
+   2. GLOBAL STYLES
+   ========================================= */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+body {
+    font-family: Inter, -apple-system, sans-serif;
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    height: 100vh;
+    display: flex;
+    overflow: hidden;
+}
+
+.app-container {
+    display: flex;
+    width: 100%;
+    height: 100%;
+}
+
+/* =========================================
+   3. SIDEBAR (FIGMA STYLE)
+   ========================================= */
+.sidebar {
+    width: 280px;
+    background-color: var(--bg-sidebar);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+}
+
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-weight: 600;
+    margin-bottom: 24px;
+}
+
+.logo-icon {
+    width: 28px;
+    height: 28px;
+    background: linear-gradient(135deg, var(--accent), #45a7ff);
+    border-radius: 6px;
+}
+
+.theme-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    margin-left: auto;
+    padding: 6px;
+    border-radius: 8px;
+    display: flex;
+    transition: color 0.2s, background 0.2s;
+}
+
+.theme-btn:hover {
+    color: var(--accent);
+    background: rgb(128 128 128 / 10%);
+}
+
+.new-query-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: 500;
+    text-align: left;
+    margin-bottom: 24px;
+}
+
+.new-query-btn:hover {
+    background: rgb(128 128 128 / 10%);
+    border-color: var(--accent);
+}
+
+.history-list {
+    flex-grow: 1;
+    overflow-y: auto;
+}
+
+.history-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 10px 0 10px 8px;
+}
+
+.history-item {
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    cursor: pointer;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.history-item.active, .history-item:hover {
+    background: rgb(128 128 128 / 10%);
+    color: var(--text-primary);
+}
+
+.sidebar-footer {
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+.user-profile {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.avatar {
+    width: 36px;
+    height: 36px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-weight: 600;
+}
+
+.username { 
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.user-status {
+    font-size: 11px;
+    color: var(--text-muted); 
+}
+
+/* =========================================
+   4. MAIN CHAT INTERFACE
+   ========================================= */
+.main-stage {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.stage-header {
+    height: 60px;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.badge {
+    font-size: 10px;
+    background: rgb(47 211 182 / 10%);
+    color: var(--accent);
+    padding: 2px 8px;
+    border-radius: 99px;
+    border: 1px solid var(--accent);
+    margin-left: 8px;
+}
+
+.status-dot {
+    height: 8px;
+    width: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+}
+
+.chat-viewport {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 40px 15%; 
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+/* Messages */
+.msg {
+    max-width: 800px;
+    width: 100%;
+    margin: 0 auto;
+    animation: slide-up 0.3s ease-out;
+}
+
+.msg-content {
+    padding: 16px 20px;
+    border-radius: 12px;
+    line-height: 1.6;
+    font-size: 15px;
+}
+
+.bot-msg .msg-content {
+    background: var(--bubble-bot);
+    border: 1px solid var(--border-color);
+}
+
+.user-msg .msg-content {
+    background: var(--bubble-user);
+    align-self: flex-end;
+    border: 1px solid rgb(47 211 182 / 20%);
+}
+
+/* Markdown Rendering Overrides */
+.markdown-body p { margin-bottom: 12px; }
+.markdown-body p:last-child { margin-bottom: 0; }
+
+.markdown-body code { 
+    background: rgb(128 128 128 / 15%); 
+    padding: 2px 6px; 
+    border-radius: 4px; 
+    font-family: monospace; 
+    font-size: 0.9em; 
+}
+
+.markdown-body pre { 
+    background: var(--input-bg); 
+    border: 1px solid var(--border-color); 
+    padding: 12px; 
+    border-radius: 8px; 
+    overflow-x: auto; 
+    margin: 12px 0; 
+}
+.markdown-body pre code { background: none; padding: 0; }
+.markdown-body ul, .markdown-body ol { margin-left: 20px; margin-bottom: 12px; }
+
+.confidence-tag {
+    font-size: 11px;
+    color: var(--accent);
+    margin-top: 10px;
+    font-weight: 600;
+}
+
+/* =========================================
+   5. INPUT / COMPOSER AREA
+   ========================================= */
+.input-area {
+    padding: 20px 15% 40px;
+}
+
+.composer {
+    background: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    display: flex;
+    align-items: flex-end;
+    padding: 10px 14px;
+    box-shadow: var(--shadow);
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+#user-input {
+    flex-grow: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    padding: 12px;
+    resize: none;
+    outline: none;
+    font-family: inherit;
+    font-size: 15px;
+    max-height: 180px;
+}
+
+#send-btn {
+    background: var(--accent);
+    border: none;
+    border-radius: 10px;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s;
+}
+
+#send-btn:hover {
+    transform: scale(1.05); 
+}
+
+#send-btn svg {
+    stroke: #fff;
+}
+
+.disclaimer {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 12px;
+}
+
+/* =========================================
+   6. ANIMATIONS
+   ========================================= */
+@keyframes slide-up {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.thinking-pulse { display: flex; gap: 4px; }
+
+.dot {
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulse 1.4s infinite ease-in-out;
+}
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes pulse {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40% { transform: scale(1.2); opacity: 1; }
+}
+
+/* =========================================
+   7. RESPONSIVE DESIGN (MOBILE)
+   ========================================= */
+@media (width <= 768px) {
+    .app-container {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        height: auto;
+        max-height: 250px;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 8px;
+    }
+
+    .chat-viewport, .input-area {
+        padding-left: 5%;
+        padding-right: 5%;
+    }
+
+    .stage-header {
+        padding: 0 16px;
+    }
+
+    .composer {
+        border-radius: 12px;
+    }
+}

@@ -1,3 +1,6 @@
+# AI_Knowledge_Assistant/app/utils/logger.py
+"""Centralized logging setup with request-id context propagation."""
+
 import contextvars
 import logging
 import os
@@ -10,20 +13,27 @@ _LOGGER_STATE = {"configured": False}
 
 
 class RequestIdFilter(logging.Filter):
+    """Inject request ID from contextvars into each log record."""
+
+    # pylint: disable=too-few-public-methods
     def filter(self, record: logging.LogRecord) -> bool:
+        """Attach request ID to log record and keep the record."""
         record.request_id = _REQUEST_ID_CONTEXT.get()
         return True
 
 
 def set_request_id(request_id: str) -> None:
+    """Set the current request ID in context for structured log correlation."""
     _REQUEST_ID_CONTEXT.set(request_id or "-")
 
 
 def clear_request_id() -> None:
+    """Reset request ID context to default placeholder."""
     _REQUEST_ID_CONTEXT.set("-")
 
 
 def setup_logging(log_level: str = "INFO", log_file: Optional[str] = None) -> None:
+    """Configure root logger once with stream and rotating-file handlers."""
     if _LOGGER_STATE["configured"]:
         return
 
@@ -65,6 +75,7 @@ def setup_logging(log_level: str = "INFO", log_file: Optional[str] = None) -> No
 
 
 def get_logger(name: str) -> logging.Logger:
+    """Return a configured logger instance by name."""
     if not _LOGGER_STATE["configured"]:
         setup_logging()
     return logging.getLogger(name)

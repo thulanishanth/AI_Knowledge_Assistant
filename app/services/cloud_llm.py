@@ -1,3 +1,5 @@
+"""Cloud LLM service for Hugging Face API integration."""
+
 # app/services/cloud_llm.py
 import requests
 from app.config import HF_API_KEY

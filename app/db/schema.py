@@ -1,3 +1,4 @@
+# AI_Knowledge_Assistant/app/db/schema.py
 """
 Database schema definitions for AI Knowledge Assistant.
 This can be used for RAG context or reference in prompts.

@@ -1,3 +1,7 @@
+# AI_Knowledge_Assistant/app/services/llm_client.py
+"""LLM client wrapper with router-first, legacy fallback, and retry strategy."""
+
+import time
 import requests
 from huggingface_hub import InferenceClient
 
@@ -11,6 +15,7 @@ client = InferenceClient(model=HF_MODEL, token=HF_API_KEY)
 
 
 def _call_llm_router(prompt: str, max_tokens: int) -> str:
+    """Call HF router endpoint and return assistant text content."""
     payload = {
         "model": HF_MODEL,
         "messages": [{"role": "user", "content": prompt}],
@@ -34,6 +39,7 @@ def _call_llm_router(prompt: str, max_tokens: int) -> str:
 
 
 def _call_llm_legacy(prompt: str, max_tokens: int) -> str:
+    """Call legacy HF text-generation endpoint as fallback."""
     result = client.text_generation(
         prompt,
         max_new_tokens=max_tokens,
@@ -46,23 +52,57 @@ def _call_llm_legacy(prompt: str, max_tokens: int) -> str:
             return cleaned
         raise RuntimeError("Legacy HF API returned an empty response.")
 
-    raise RuntimeError(f"Legacy HF API returned unexpected response type: {type(result).__name__}")
+    raise RuntimeError(
+        "Legacy HF API returned unexpected response type: "
+        f"{type(result).__name__}"
+    )
 
 
-def call_llm(prompt: str, max_tokens: int = 200) -> str:
+def call_llm(prompt: str, max_tokens: int = 200, max_retries: int = 3) -> str:
+    """Generate LLM output with router call, legacy fallback, and exponential backoff retries."""
     if not prompt or not prompt.strip():
         raise ValueError("Prompt cannot be empty.")
+    if max_retries < 1:
+        raise ValueError("max_retries must be at least 1.")
 
-    try:
-        return _call_llm_router(prompt, max_tokens)
-    except (requests.RequestException, RuntimeError, ValueError, TypeError, KeyError) as router_error:
-        logger.exception("HF router call failed, trying legacy API fallback")
+    for attempt in range(max_retries):
         try:
-            return _call_llm_legacy(prompt, max_tokens)
-        except (RuntimeError, ValueError, TypeError, AttributeError) as legacy_error:
-            logger.exception("Legacy HF fallback failed")
-            router_message = str(router_error).strip() or router_error.__class__.__name__
-            legacy_message = str(legacy_error).strip() or legacy_error.__class__.__name__
-            raise RuntimeError(
-                f"LLM request failed: router error ({router_message}); legacy error ({legacy_message})"
-            ) from legacy_error
+            # 1. Try the primary router
+            return _call_llm_router(prompt, max_tokens)
+
+        except (
+            requests.RequestException,
+            RuntimeError,
+            ValueError,
+            TypeError,
+            KeyError,
+        ) as router_error:
+            logger.warning(
+                "Attempt %s: HF router call failed (%s). Trying legacy fallback.",
+                attempt + 1,
+                router_error,
+            )
+
+            try:
+                # 2. Try the legacy fallback
+                return _call_llm_legacy(prompt, max_tokens)
+
+            except (RuntimeError, ValueError, TypeError, AttributeError) as legacy_error:
+                logger.warning(
+                    "Attempt %s: Legacy HF fallback failed (%s).",
+                    attempt + 1,
+                    legacy_error,
+                )
+
+                # 3. If both fail, evaluate if we should retry
+                if attempt < max_retries - 1:
+                    sleep_time = 2 ** attempt  # Wait 1s, then 2s...
+                    logger.info("Rate limit or timeout hit. Retrying in %s seconds...", sleep_time)
+                    time.sleep(sleep_time)
+                else:
+                    logger.error("All LLM generation attempts exhausted.")
+                    # Let the error bubble up so the Query Service can catch it
+                    raise RuntimeError(
+                        "External AI provider is currently unreachable."
+                    ) from legacy_error
+    raise RuntimeError("All LLM generation attempts exhausted.")

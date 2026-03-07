@@ -1,3 +1,6 @@
+# AI_Knowledge_Assistant/app/services/rag_retriever.py
+"""RAG schema-context retrieval from live MySQL metadata via Connection Pool."""
+
 from mysql.connector import Error
 
 from app.config import DB_TABLE, DB_NAME
@@ -7,14 +10,25 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def _fetch_live_schema_context() -> str:
+def _fetch_live_schema_context() -> str:  # pylint: disable=too-many-branches
     """
     Build schema context from the active DB configured in .env.
+    Uses the MySQL Connection Pool to prevent TCP exhaustion.
     """
     connection = None
     cursor = None
     try:
+        # 1. Fetch from the pre-warmed pool instantly
         connection = create_db_connection()
+        # 2. Safety Check: Ensure the pool didn't return None
+        if not connection:
+            logger.warning("RAG Retriever could not acquire a DB connection from the pool.")
+            return (
+                f"Active Database: {DB_NAME}\n"
+                f"Target Table: {DB_TABLE}\n"
+                "Schema unavailable: Connection pool exhausted."
+            )
+
         cursor = connection.cursor()
         cursor.execute(
             """
@@ -74,8 +88,10 @@ def _fetch_live_schema_context() -> str:
         logger.exception("Unexpected error while fetching schema context")
         return f"Active Database: {DB_NAME}\nSchema unavailable: {error_message}"
     finally:
+        # 3. Clean up cursor
         if cursor:
             cursor.close()
+        # 4. Hand the connection back to the pool
         if connection and connection.is_connected():
             close_connection(connection)
 
