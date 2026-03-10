@@ -1,5 +1,5 @@
+# AI_Knowledge_Assistant/app/db/mysql.py
 """MySQL connection management with lazy singleton pooling."""
-
 from functools import lru_cache
 import mysql.connector
 from mysql.connector import Error, pooling

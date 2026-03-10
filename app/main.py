@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import asyncio
+import asyncio                                         
 import contextlib
 import time
 import uuid
@@ -24,10 +24,29 @@ from app.utils.logger import clear_request_id, get_logger, set_request_id, setup
 setup_logging(LOG_LEVEL, LOG_FILE or None)
 logger = get_logger(__name__)
 
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle application startup and shutdown events."""
+    # Startup
+    await container.initialize()
+    app.state.cleanup_task = asyncio.create_task(
+        container.memory_manager.run_cleanup_forever()
+    )
+    logger.info("Application startup completed")
+    yield
+    # Shutdown
+    cleanup_task = app.state.cleanup_task
+    if cleanup_task is not None:
+        cleanup_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await cleanup_task
+    logger.info("Application shutdown completed")
+
 app = FastAPI(
     title="AI Knowledge Assistant",
     description="An AI-powered assistant for querying databases with natural language.",
     version="1.0.0",
+    lifespan=lifespan,
 )
 app.state.cleanup_task = None
 
@@ -39,28 +58,6 @@ app.add_middleware(
     allow_headers=["*"],  # Allows custom headers like Content-Type
 )
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
-
-
-@app.on_event("startup")
-async def on_startup() -> None:
-    """Initialize dependencies and start background cleanup."""
-    await container.initialize()
-    app.state.cleanup_task = asyncio.create_task(
-        container.memory_manager.run_cleanup_forever()
-    )
-    logger.info("Application startup completed")
-
-
-@app.on_event("shutdown")
-async def on_shutdown() -> None:
-    """Gracefully stop background tasks and close application resources."""
-    cleanup_task = app.state.cleanup_task
-    if cleanup_task is not None:
-        cleanup_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await cleanup_task
-    logger.info("Application shutdown completed")
-
 
 @app.middleware("http")
 async def request_logging_middleware(
