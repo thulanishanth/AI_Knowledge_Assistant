@@ -1,3 +1,4 @@
+"""Retrieves live database schema context for Retrieval-Augmented Generation (RAG)."""
 from mysql.connector import Error
 
 from app.config import DB_TABLE, DB_NAME

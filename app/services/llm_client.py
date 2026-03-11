@@ -1,3 +1,6 @@
+"""
+Client interface for interacting with Hugging Face LLM models.
+"""
 import requests
 from huggingface_hub import InferenceClient
 
@@ -50,19 +53,31 @@ def _call_llm_legacy(prompt: str, max_tokens: int) -> str:
 
 
 def call_llm(prompt: str, max_tokens: int = 200) -> str:
+    """
+    Primary entry point to generate text from the LLM with fallback support.
+    """
     if not prompt or not prompt.strip():
         raise ValueError("Prompt cannot be empty.")
 
     try:
         return _call_llm_router(prompt, max_tokens)
-    except (requests.RequestException, RuntimeError, ValueError, TypeError, KeyError) as router_error:
+    except (
+        requests.RequestException,
+        RuntimeError,
+        ValueError,
+        TypeError,
+        KeyError
+    ) as router_error:
         logger.exception("HF router call failed, trying legacy API fallback")
         try:
             return _call_llm_legacy(prompt, max_tokens)
         except (RuntimeError, ValueError, TypeError, AttributeError) as legacy_error:
             logger.exception("Legacy HF fallback failed")
-            router_message = str(router_error).strip() or router_error.__class__.__name__
-            legacy_message = str(legacy_error).strip() or legacy_error.__class__.__name__
-            raise RuntimeError(
-                f"LLM request failed: router error ({router_message}); legacy error ({legacy_message})"
-            ) from legacy_error
+            router_msg = str(router_error).strip() or router_error.__class__.__name__
+            legacy_msg = str(legacy_error).strip() or legacy_error.__class__.__name__
+            # Wrap the long string using parentheses
+            error_detail = (
+                f"LLM request failed: router error ({router_msg}); "
+                f"legacy error ({legacy_msg})"
+            )
+            raise RuntimeError(error_detail) from legacy_error

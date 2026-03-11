@@ -1,3 +1,6 @@
+"""
+This module handles the creation and management of MySQL database connections.
+"""
 import mysql.connector
 from mysql.connector import Error
 from mysql.connector.connection import MySQLConnection
@@ -9,6 +12,12 @@ logger = get_logger(__name__)
 
 
 def create_db_connection() -> MySQLConnection:
+    """
+    Establishes and returns a connection to the MySQL database.
+    
+    Returns:
+        MySQLConnection: A connected MySQL connection object.
+    """
     connection = mysql.connector.connect(
         host=DB_HOST,
         port=DB_PORT,

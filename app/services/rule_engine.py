@@ -1,3 +1,4 @@
+"""Module for applying business rules to refine user queries."""
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)

@@ -1,3 +1,4 @@
+"""Constructs prompts for the LLM based on user queries, context, and intent."""
 from app.config import DB_TABLE
 from app.utils.logger import get_logger
 

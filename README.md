@@ -8,6 +8,7 @@ An AI-powered FastAPI application that translates natural language questions int
 - REST API endpoint for chat requests: `POST /api/chat/`
 - Confidence scoring returned with each answer
 - SQL validation and execution pipeline for data-backed queries
+- RAG filler that enriches live schema context with local schema/examples
 - Configurable environment via `.env`
 - Request-level structured logging with request IDs
 

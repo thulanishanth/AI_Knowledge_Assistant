@@ -1,3 +1,7 @@
+"""
+Configuration module for the AI Knowledge Assistant.
+Handles environment variable loading and provides global constants.
+"""
 import os
 from typing import Optional
 

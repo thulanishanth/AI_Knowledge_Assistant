@@ -1,3 +1,4 @@
+"""Safely executes validated SQL queries against the database and fetches results."""
 from mysql.connector import Error
 
 from app.db.mysql import close_connection, create_db_connection
