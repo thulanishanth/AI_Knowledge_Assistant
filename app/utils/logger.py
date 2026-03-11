@@ -1,3 +1,6 @@
+"""
+Logging utility for standardized application-wide tracking and request tracing.
+"""
 import contextvars
 import logging
 import os
@@ -10,20 +13,31 @@ _LOGGER_STATE = {"configured": False}
 
 
 class RequestIdFilter(logging.Filter):
+    """
+    Logging filter to inject a unique request_id into every log record.
+    """
     def filter(self, record: logging.LogRecord) -> bool:
-        record.request_id = _REQUEST_ID_CONTEXT.get()
+        """Add the request_id to the log record."""
+        record.request_id = self.get_request_id()
         return True
+
+    def get_request_id(self) -> str:
+        """Retrieve the current request ID from the context variable."""
+        return _REQUEST_ID_CONTEXT.get()
 
 
 def set_request_id(request_id: str) -> None:
+    """Set the request ID in the current context for log tracing."""
     _REQUEST_ID_CONTEXT.set(request_id or "-")
 
 
 def clear_request_id() -> None:
+    """Clear the request ID from the current context."""
     _REQUEST_ID_CONTEXT.set("-")
 
 
 def setup_logging(log_level: str = "INFO", log_file: Optional[str] = None) -> None:
+    """Configure application-wide logging with stream and rotating file handlers."""
     if _LOGGER_STATE["configured"]:
         return
 
@@ -65,6 +79,7 @@ def setup_logging(log_level: str = "INFO", log_file: Optional[str] = None) -> No
 
 
 def get_logger(name: str) -> logging.Logger:
+    """Retrieve a configured logger instance by name."""
     if not _LOGGER_STATE["configured"]:
         setup_logging()
     return logging.getLogger(name)

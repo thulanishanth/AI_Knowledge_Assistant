@@ -1,3 +1,6 @@
+"""
+API Router for chat-related endpoints.
+"""
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from app.services.query_service import handle_query
@@ -7,14 +10,22 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 class ChatRequest(BaseModel):
+    """Schema for the user's chat request."""
     question: str = Field(..., min_length=1)
 
 class ChatResponse(BaseModel):
+    """
+    Schema for the successful chat response, including the generated answer 
+    and the system's confidence level.
+    """
     answer: str
     confidence: float = 1.0
 
 @router.post("/", response_model=ChatResponse)
 def chat_endpoint(request: ChatRequest):
+    """
+    Handles incoming chat requests by passing them through the query pipeline.
+    """
     logger.info("Chat request received")
     try:
         answer, confidence = handle_query(request.question)
