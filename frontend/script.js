@@ -16,7 +16,6 @@ if (!userId) {
   userId = "usr_" + Math.random().toString(36).substring(2, 15);
   localStorage.setItem("ai_assistant_user_id", userId);
 }
-
 // Tracks the ACTIVE conversation. Null means a new session will be created.
 let sessionId = null;
 

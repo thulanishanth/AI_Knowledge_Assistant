@@ -1,6 +1,5 @@
 # AI_Knowledge_Assistant/app/services/intent_classifier.py
-"""Intent classification heuristics for SQL vs general questions."""
-
+"""Provides intent classification to determine if a query is SQL-related or general."""
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)

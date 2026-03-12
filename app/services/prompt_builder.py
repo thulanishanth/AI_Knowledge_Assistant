@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
+
 from app.config import DB_TABLE
 from app.utils.logger import get_logger
 

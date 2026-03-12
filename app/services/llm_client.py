@@ -58,6 +58,7 @@ def _call_llm_legacy(prompt: str, max_tokens: int) -> str:
     )
 
 
+
 def call_llm(prompt: str, max_tokens: int = 200, max_retries: int = 3) -> str:
     """Generate LLM output with router call, legacy fallback, and exponential backoff retries."""
     if not prompt or not prompt.strip():

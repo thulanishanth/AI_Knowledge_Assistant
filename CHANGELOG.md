@@ -1,6 +1,4 @@
 
-Here is a **professional `CHANGELOG.md`** you can use for your project. It follows the common standard **Keep a Changelog** format and semantic versioning.
-
 ---
 
 # Changelog

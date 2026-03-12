@@ -81,7 +81,6 @@ async def request_logging_middleware(
     finally:
         clear_request_id()
 
-
 def _api_status_message(frontend_dir: Path, frontend_index: Path) -> str:
     """Return a clear API root status message when static frontend is unavailable."""
     if frontend_dir.exists() and not frontend_index.exists():

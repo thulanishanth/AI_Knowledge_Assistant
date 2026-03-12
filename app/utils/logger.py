@@ -21,6 +21,10 @@ class RequestIdFilter(logging.Filter):
         record.request_id = _REQUEST_ID_CONTEXT.get()
         return True
 
+    def get_request_id(self) -> str:
+        """Retrieve the current request ID from the context variable."""
+        return _REQUEST_ID_CONTEXT.get()
+
 
 def set_request_id(request_id: str) -> None:
     """Set the current request ID in context for structured log correlation."""

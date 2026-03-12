@@ -1,137 +1,97 @@
 
 ---
 
-# Code of Conduct
+# Company Code of Conduct
 
-## Our Pledge
+Purpose
+-------
 
-We as members, contributors, and maintainers pledge to make participation in this project and our community a harassment-free experience for everyone, regardless of:
+This repository is owned and maintained by the Company for internal use. The purpose of this Code of Conduct is to describe mandatory behavioral expectations, reporting channels, and enforcement processes that apply to all employees, contractors, and other individuals who access Company code, systems, or collaboration spaces.
 
-* Age
-* Body size
-* Disability
-* Ethnicity
-* Gender identity or expression
-* Level of experience
-* Nationality
-* Personal appearance
-* Race
-* Religion
-* Sexual identity and orientation
+Policy Statement
+----------------
 
-We are committed to creating an **open, inclusive, and respectful environment** for all contributors.
+The Company expects all participants to act professionally, respectfully, and lawfully. Harassment, discrimination, or other conduct that creates a hostile work environment is prohibited. All interactions should reflect the Company’s values and employment policies.
 
----
+Scope
+-----
 
-# Our Standards
+This Code of Conduct applies to activity that occurs in or relates to Company-controlled resources, including but not limited to:
 
-Examples of behavior that contribute to a positive environment include:
+- Source code repositories and their issues/pull requests
+- Internal chat and collaboration channels (e.g., Slack, Teams)
+- Project and design documents
+- Meetings, trainings, and official work events
+- Any time an individual is representing the Company in a professional capacity
 
-* Being respectful and inclusive in communication
-* Providing constructive feedback
-* Accepting responsibility for mistakes
-* Helping new contributors learn and grow
-* Using welcoming and professional language
-* Focusing on what is best for the community and the project
+Expected Behavior
+-----------------
 
-Examples of unacceptable behavior include:
+All participants must:
 
-* Harassment or discrimination of any kind
-* Trolling, insulting, or derogatory comments
-* Personal or political attacks
-* Public or private harassment
-* Publishing someone’s private information without permission
-* Any conduct that could reasonably be considered inappropriate in a professional setting
+- Communicate respectfully and professionally.
+- Follow applicable Company policies, including those on security, privacy, and confidentiality.
+- Use inclusive language and avoid demeaning or exclusionary remarks.
+- Follow established code review, commit, and documentation standards.
+- Report observed policy violations promptly through the proper channels.
 
----
+Unacceptable Behavior
+---------------------
 
-# Contributor Responsibilities
+Unacceptable behavior includes, but is not limited to:
 
-Contributors are expected to:
+- Harassment, bullying, or threats.
+- Discrimination based on protected characteristics.
+- Sending or posting sexually explicit or offensive material.
+- Sharing confidential Company information or third-party private data without authorization.
+- Unauthorized access, manipulation, or disclosure of data or systems.
+- Retaliation against anyone who reports concerns in good faith.
 
-* Follow the project's coding standards
-* Write clean and readable code
-* Provide meaningful commit messages
-* Respect maintainers' decisions
-* Review feedback professionally
-* Keep discussions focused on improving the project
+Reporting Procedure
+-------------------
 
----
+To report violations or concerns, use one of the following channels:
 
-# Reporting Issues
+- Your manager or team leader.
+- Human Resources: hr@company.internal
+- Information Security / Security Operations: security@company.internal
+- Anonymous reporting (if available): contact details are published on the Company intranet.
 
-If you experience or witness unacceptable behavior, please report it by contacting the project maintainer.
+Reports should include relevant facts (who, what, where, when) and any supporting evidence. The Company will treat reports confidentially to the extent possible.
 
-You can report issues by:
+Confidentiality & Evidence
+-------------------------
 
-* Opening a private issue in the repository
-* Contacting the maintainer via email
+The Company recognizes the sensitivity of conduct reports. Investigations will be conducted discreetly and with respect for privacy. Evidence collected may include message logs, repository history, access records, and other artifacts necessary to investigate the matter.
 
-Example contact:
+Enforcement and Consequences
+----------------------------
 
-```
-maintainer-email@example.com
-```
+Alleged violations will be handled according to Company policies and applicable employment laws. Enforcement steps may include:
 
-All reports will be reviewed and investigated promptly and fairly.
+- Informal coaching or counseling
+- Formal written warning
+- Removal of system or repo access
+- Reassignment or suspension
+- Termination of employment or contract
 
----
+Decisions will follow an established review and escalation process involving People Operations, Legal, and Security as appropriate.
 
-# Enforcement
+No Retaliation
+-------------
 
-Project maintainers are responsible for clarifying and enforcing our standards of acceptable behavior.
+Retaliation against individuals who report violations or participate in investigations is strictly prohibited. Anyone who believes they have experienced retaliation should report it through the channels above.
 
-Maintainers may take appropriate action including:
+Responsibilities
+----------------
 
-* Warning the contributor
-* Temporary ban from the project
-* Permanent removal from the community
-* Removing or reverting contributions
+- Employees and contractors: follow this Code of Conduct and report concerns.
+- Managers: ensure team members are aware of these expectations and escalate reports appropriately.
+- People Operations (HR), Legal, and Security: coordinate investigations and remedial actions.
 
-Decisions will be made to protect the community and the project.
+Review and Updates
+------------------
 
----
-
-# Scope
-
-This Code of Conduct applies within:
-
-* Project repositories
-* Issues and pull requests
-* Discussions and community spaces
-* Any other spaces representing the project
-
-It also applies when an individual is officially representing the project in public spaces.
-
----
-
-# Enforcement Guidelines
-
-Maintainers will follow these general guidelines when addressing violations:
-
-### 1. Correction
-
-A private message explaining the violation and guidance for improvement.
-
-### 2. Warning
-
-A formal warning if the behavior continues.
-
-### 3. Temporary Ban
-
-Temporary restriction from interacting with the project.
-
-### 4. Permanent Ban
-
-Permanent removal from the project community.
-
----
-
-# Attribution
-
-This Code of Conduct is adapted from the widely used **Contributor Covenant Code of Conduct**.
-
-Contributor Covenant version 2.1
-[https://www.contributor-covenant.org](https://www.contributor-covenant.org)
+This document will be reviewed periodically and updated to remain aligned with Company policy and legal requirements. For questions about this Code of Conduct, contact HR at hr@company.internal.
 
 ---
