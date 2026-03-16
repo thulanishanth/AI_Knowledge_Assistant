@@ -1,103 +1,181 @@
 # AI_Knowledge_Assistant/app/services/rag_retriever.py
-"""RAG schema-context retrieval from live MySQL metadata via Connection Pool."""
+"""Dynamic RAG schema-context retrieval from live MySQL metadata."""
+
+from __future__ import annotations
 
 from mysql.connector import Error
 
-from app.config import DB_TABLE, DB_NAME
-from app.db.mysql import close_connection, create_db_connection
+from app.config import DB_NAME, DB_TABLE
+from app.db.mysql import create_db_connection
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+_TEXT_TYPES = {"char", "varchar", "text", "tinytext", "mediumtext", "longtext"}
 
-def _fetch_live_schema_context() -> str:  # pylint: disable=too-many-branches
+
+def _build_schema_fallback() -> str:
+    """Return a clean minimal fallback context."""
+    return "\n".join(
+        [
+            f"Active Database: {DB_NAME}",
+            f"Target Table: {DB_TABLE}",
+            "Schema Status: unavailable",
+        ]
+    )
+
+
+def _fetch_columns(cursor) -> list[tuple[str, str]]:
+    """Fetch ordered column names and data types for the configured table."""
+    cursor.execute(
+        """
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = %s AND table_name = %s
+        ORDER BY ordinal_position
+        """,
+        (DB_NAME, DB_TABLE),
+    )
+    rows = cursor.fetchall()
+    columns: list[tuple[str, str]] = []
+
+    for row in rows:
+        if isinstance(row, (tuple, list)) and len(row) >= 2:
+            col_name, data_type = row[0], row[1]
+        elif isinstance(row, dict):
+            col_name = row.get("column_name") or row.get("COLUMN_NAME")
+            data_type = row.get("data_type") or row.get("DATA_TYPE")
+        else:
+            continue
+
+        if col_name and data_type:
+            columns.append((str(col_name).strip(), str(data_type).strip().lower()))
+
+    return columns
+
+
+def _count_distinct_values(cursor, column_name: str) -> int | None:
+    """Return COUNT(DISTINCT column) for one column."""
+    try:
+        query = f"SELECT COUNT(DISTINCT `{column_name}`) AS distinct_count FROM `{DB_TABLE}`"
+        cursor.execute(query)
+        row = cursor.fetchone()
+
+        if isinstance(row, dict):
+            return int(row.get("distinct_count", 0))
+        if isinstance(row, (tuple, list)) and row:
+            return int(row[0])
+        return None
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.debug("Failed distinct count for column %s: %s", column_name, exc)
+        return None
+
+
+def _fetch_distinct_values(
+    cursor,
+    column_name: str,
+    max_values: int = 12,
+) -> list[str]:
+    """Fetch a small ordered list of distinct non-null values for one column."""
+    try:
+        query = f"""
+            SELECT DISTINCT `{column_name}`
+            FROM `{DB_TABLE}`
+            WHERE `{column_name}` IS NOT NULL
+              AND TRIM(`{column_name}`) <> ''
+            ORDER BY `{column_name}`
+            LIMIT {max_values}
+        """
+        cursor.execute(query)
+        rows = cursor.fetchall()
+
+        values: list[str] = []
+        for row in rows:
+            if isinstance(row, dict):
+                value = row.get(column_name)
+                if value is None and row:
+                    value = next(iter(row.values()))
+            elif isinstance(row, (tuple, list)) and row:
+                value = row[0]
+            else:
+                value = None
+
+            if value is not None:
+                values.append(str(value).strip())
+
+        return values
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.debug("Failed distinct value fetch for column %s: %s", column_name, exc)
+        return []
+
+
+def _fetch_live_schema_context() -> str:
     """
-    Build schema context from the active DB configured in .env.
-    Uses the MySQL Connection Pool to prevent TCP exhaustion.
+    Build prompt-ready schema context dynamically from MySQL.
+
+    Includes:
+    - column names
+    - data types
+    - distinct values for low-cardinality text columns
     """
     connection = None
     cursor = None
+
     try:
-        # 1. Fetch from the pre-warmed pool instantly
         connection = create_db_connection()
-        # 2. Safety Check: Ensure the pool didn't return None
         if not connection:
-            logger.warning("RAG Retriever could not acquire a DB connection from the pool.")
-            return (
-                f"Active Database: {DB_NAME}\n"
-                f"Target Table: {DB_TABLE}\n"
-                "Schema unavailable: Connection pool exhausted."
-            )
+            return _build_schema_fallback()
 
-        cursor = connection.cursor()
-        cursor.execute(
-            """
-            SELECT
-                table_name,
-                column_name,
-                data_type
-            FROM information_schema.columns
-            WHERE table_schema = %s AND table_name = %s
-            ORDER BY ordinal_position
-            """,
-            (DB_NAME, DB_TABLE),
-        )
-        rows = cursor.fetchall()
+        cursor = connection.cursor(dictionary=True)
 
-        if not rows:
-            return (
-                f"Active Database: {DB_NAME}\n"
-                f"Target Table: {DB_TABLE}\n"
-                "Table not found or has no columns."
-            )
-
-        columns = []
-        for row in rows:
-            # row shape: (table_name, column_name, data_type)
-            if isinstance(row, (tuple, list)) and len(row) >= 3:
-                column_name = row[1]
-                data_type = row[2]
-            elif isinstance(row, dict):
-                column_name = row.get("column_name") or row.get("COLUMN_NAME")
-                data_type = row.get("data_type") or row.get("DATA_TYPE")
-            else:
-                continue
-
-            if column_name and data_type:
-                columns.append(f"{column_name} ({data_type})")
-
+        columns = _fetch_columns(cursor)
         if not columns:
-            return (
-                f"Active Database: {DB_NAME}\n"
-                f"Target Table: {DB_TABLE}\n"
-                "Schema unavailable: unable to read table columns."
-            )
+            return _build_schema_fallback()
 
         lines = [
             f"Active Database: {DB_NAME}",
             f"Target Table: {DB_TABLE}",
-            f"- {DB_TABLE}: {', '.join(columns)}",
+            "Available Columns:",
         ]
+
+        for column_name, data_type in columns:
+            lines.append(f"- {DB_TABLE}.{column_name} ({data_type})")
+
+            # Only enrich low-cardinality text columns dynamically
+            if data_type in _TEXT_TYPES:
+                distinct_count = _count_distinct_values(cursor, column_name)
+
+                # Treat small-cardinality text fields like enums
+                if distinct_count is not None and 0 < distinct_count <= 20:
+                    distinct_values = _fetch_distinct_values(cursor, column_name)
+                    if distinct_values:
+                        joined = ", ".join(distinct_values)
+                        lines.append(f"  Allowed Values: {joined}")
+
         return "\n".join(lines)
-    except Error as e:
-        error_message = str(e).strip() or e.__class__.__name__
+
+    except Error:
         logger.exception("Failed to fetch live schema context from MySQL")
-        return f"Active Database: {DB_NAME}\nSchema unavailable: {error_message}"
-    except (RuntimeError, TypeError, ValueError, KeyError, AttributeError) as e:
-        error_message = str(e).strip() or e.__class__.__name__
+        return _build_schema_fallback()
+
+    except Exception:
         logger.exception("Unexpected error while fetching schema context")
-        return f"Active Database: {DB_NAME}\nSchema unavailable: {error_message}"
+        return _build_schema_fallback()
+
     finally:
-        # 3. Clean up cursor
-        if cursor:
-            cursor.close()
-        # 4. Hand the connection back to the pool
-        if connection and connection.is_connected():
-            close_connection(connection)
+        if cursor is not None:
+            try:
+                cursor.close()
+            except Exception:
+                logger.debug("Failed to close schema cursor cleanly", exc_info=True)
+
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                logger.debug("Failed to close schema connection cleanly", exc_info=True)
 
 
 def retrieve_context(_user_question: str) -> str:
-    """
-    Retrieve context for a user question from live database schema.
-    """
+    """Retrieve live schema context dynamically from MySQL."""
     return _fetch_live_schema_context()

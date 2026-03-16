@@ -54,7 +54,7 @@ class MemoryManager:
                     session_id=session_id,
                     query=user_query,
                 )
-            except Exception as exc:  # pylint: disable=broad-exception-caught
+            except Exception as exc:
                 logger.exception("Vector retrieval failed; using window+summary fallback.")
                 metrics.increment_errors("vector_retrieval")
                 log_event(
@@ -64,7 +64,6 @@ class MemoryManager:
                 )
                 return []
 
-    # pylint: disable-next=too-many-locals
     async def get_context_for_llm(
         self,
         user_id: str,
@@ -72,48 +71,56 @@ class MemoryManager:
         user_query: str,
         rag_context: str | None = None,
     ) -> dict[str, Any]:
-        """Assemble vector, window, summary, and RAG context for prompting."""
+        """Assemble vector, window, summary, and RAG context with fault-tolerant concurrency."""
         with tracing.span("memory.get_context_for_llm"), metrics.timer("memory_context_assembly"):
-            vector_task = asyncio.create_task(
-                self.fetch_relevant_context(user_id, session_id, user_query)
-            )
-            window_task = asyncio.create_task(self._window_memory.get_window(user_id, session_id))
-            summary_task = asyncio.create_task(
-                self._summary_memory.get_summary(user_id, session_id)
-            )
-
+            
+            # 1. Define all retrieval tasks
+            tasks = [
+                self.fetch_relevant_context(user_id, session_id, user_query),
+                self._window_memory.get_window(user_id, session_id),
+                self._summary_memory.get_summary(user_id, session_id),
+            ]
+            
             if rag_context is None:
-                rag_task = asyncio.create_task(asyncio.to_thread(retrieve_context, user_query))
-                vector_results, window_messages, summary, rag = await asyncio.gather(
-                    vector_task,
-                    window_task,
-                    summary_task,
-                    rag_task,
-                )
+                tasks.append(asyncio.to_thread(retrieve_context, user_query))
+
+            # 2. Execute concurrently with return_exceptions=True to prevent a single failure from crashing everything
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # 3. Safely unpack and validate results
+            vector_results = results[0] if not isinstance(results[0], Exception) else []
+            window_messages = results[1] if not isinstance(results[1], Exception) else []
+            summary = results[2] if not isinstance(results[2], Exception) else ""
+            
+            if rag_context is None:
+                rag = results[3] if not isinstance(results[3], Exception) else ""
             else:
-                vector_results, window_messages, summary = await asyncio.gather(
-                    vector_task,
-                    window_task,
-                    summary_task,
-                )
                 rag = rag_context
 
+            # Log component failures if any occurred
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error("Context retrieval component %s failed: %s", i, result)
+
+            # 4. Extract safe strings
             vector_texts = [
                 str(item.get("text", "")).strip()
                 for item in vector_results
-                if item.get("text")
+                if isinstance(item, dict) and item.get("text")
             ]
             window_texts = [
                 f"{message.get('role', 'unknown')}: {message.get('content', '')}".strip()
                 for message in window_messages
-                if message.get("content")
+                if isinstance(message, dict) and message.get("content")
             ]
+
             aggregated = self._context_aggregator.aggregate(
                 vector_context=vector_texts,
                 window_context=window_texts,
                 summary_context=summary,
                 rag_context=rag or "",
             )
+            
             return {
                 "vector_results": vector_results,
                 "window_messages": window_messages,
@@ -129,22 +136,32 @@ class MemoryManager:
         question: str,
         answer: str,
     ) -> None:
-        """Update session window, summary memory, and optional vector memory."""
+        """Update session window chronologically, then execute heavy memory tasks concurrently."""
         with tracing.span("memory.update_pipeline"), metrics.timer("memory_update"):
             importance = self.detect_memory_importance(question, answer)
+            
+            # 1. Update WindowMemory sequentially to guarantee chronological order
             await self._window_memory.add_message(user_id, session_id, "user", question)
             await self._window_memory.add_message(user_id, session_id, "assistant", answer)
-            await self._summary_memory.update_summary(user_id, session_id, question, answer)
 
-            # Persist medium/high-value memories into vector storage.
+            # 2. Execute heavy NLP/Vector I/O operations concurrently
+            background_tasks = [
+                self._summary_memory.update_summary(user_id, session_id, question, answer)
+            ]
+
             if importance >= settings.memory_importance_threshold:
-                await self._vector_memory.store_user_memory(
-                    user_id=user_id,
-                    session_id=session_id,
-                    question=question,
-                    answer=answer,
-                    importance_score=importance,
+                background_tasks.append(
+                    self._vector_memory.store_user_memory(
+                        user_id=user_id,
+                        session_id=session_id,
+                        question=question,
+                        answer=answer,
+                        importance_score=importance,
+                    )
                 )
+
+            # Fire and wait for background updates, ignoring exceptions so we don't crash post-response
+            await asyncio.gather(*background_tasks, return_exceptions=True)
 
             log_event(
                 "info",
@@ -179,7 +196,13 @@ class MemoryManager:
         while True:
             try:
                 await self._vector_memory.cleanup_old_memory()
-            except Exception:  # pylint: disable=broad-exception-caught
+                await asyncio.sleep(interval_seconds)
+            except asyncio.CancelledError:
+                # Expected behavior when the FastAPI server shuts down
+                logger.info("Memory cleanup task gracefully shutting down.")
+                break
+            except Exception:
                 logger.exception("Background memory cleanup failed")
                 metrics.increment_errors("memory_cleanup")
-            await asyncio.sleep(interval_seconds)
+                # Sleep a shorter amount on failure to prevent rapid retry loops
+                await asyncio.sleep(60)

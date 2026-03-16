@@ -1,5 +1,4 @@
-# AI_Knowledge_Assistant/app/services/query_service.py
-"""End-to-end query pipeline orchestration for chat requests."""
+"""Production-grade end-to-end query pipeline."""
 
 from __future__ import annotations
 
@@ -22,105 +21,134 @@ from app.services.sql_validator import validate_sql
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
 LLM_BACKPRESSURE_MESSAGE = (
-    "I apologize, but my external AI language brain is currently experiencing "
-    "high traffic or rate limits. Please wait a moment and try again!"
+    "The AI service is currently busy. Please try again in a moment."
 )
 
+# --------------------------------------------------
+# SQL Extraction
+# --------------------------------------------------
+
 def _extract_sql(llm_output: str) -> str:
-    """Extract a single SQL statement from model output."""
+    """Extract SQL safely from LLM output."""
+
     if not llm_output:
         return ""
 
     text = llm_output.strip()
 
-    fence_match = re.search(
-        r"```(?:sql)?\s*(.*?)```",
-        text,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    if fence_match:
-        text = fence_match.group(1).strip()
+    # remove markdown
+    fence = re.search(r"```(?:sql)?(.*?)```", text, re.S | re.I)
+    if fence:
+        text = fence.group(1)
 
-    select_match = re.search(
-        r"(select\b.*?)(?:;|$)",
-        text,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    if select_match:
-        sql = select_match.group(1).strip()
-        return f"{sql};"
+    # extract SELECT query
+    match = re.search(r"\bselect\b.*?;", text, re.I | re.S)
 
-    return text
+    if match:
+        return match.group(0).strip()
 
+    match = re.search(r"\bselect\b.*", text, re.I | re.S)
+
+    if match:
+        return match.group(0).strip() + ";"
+
+    return ""
+
+
+# --------------------------------------------------
+# Greeting detection
+# --------------------------------------------------
 
 def _is_greeting(text: str) -> bool:
-    """Return `True` when input is a simple greeting."""
-    normalized = " ".join((text or "").lower().strip().split())
+
+    normalized = " ".join(text.lower().strip().split())
+
     greetings = {
         "hi",
-        "hii",
-        "hiii",
         "hello",
         "hey",
         "good morning",
         "good afternoon",
         "good evening",
     }
+
     return normalized in greetings
 
 
-def _build_general_prompt(
-    refined_question: str,
-    memory_context: dict[str, object],
-) -> str:
-    """Build general-answer prompt from memory manager context payload."""
+# --------------------------------------------------
+# SQL Safety Override
+# --------------------------------------------------
+
+DB_DOMAIN_TERMS = [
+    "booking",
+    "reservation",
+    "room",
+    "guest",
+]
+
+
+def _force_sql_if_db_related(question: str, intent: str) -> str:
+    """
+    Safety override to prevent SQL misclassification.
+    """
+
+    q = question.lower()
+
+    if intent == "general":
+        if any(term in q for term in DB_DOMAIN_TERMS):
+            logger.warning("SQL override triggered based on domain keywords")
+            return "sql"
+
+    return intent
+
+
+# --------------------------------------------------
+# General prompt
+# --------------------------------------------------
+
+def _build_general_prompt(refined_question, memory_context):
+
     return container.prompt_builder.build_memory_prompt(
         user_query=refined_question,
         system_instructions=(
             "You are an enterprise AI assistant. "
-            "Be concise, factual, and safe."
+            "Be factual and do not invent database facts."
         ),
         conversation_history=[
-            f"{message.get('role')}: {message.get('content')}"
-            for message in memory_context.get("window_messages", [])
-            if isinstance(message, dict)
+            f"{m.get('role')}: {m.get('content')}"
+            for m in memory_context.get("window_messages", [])
         ],
         relevant_memories=[
-            str(item.get("text", ""))
-            for item in memory_context.get("vector_results", [])
-            if isinstance(item, dict)
+            str(x.get("text", ""))
+            for x in memory_context.get("vector_results", [])
         ],
         summary_context=str(memory_context.get("summary", "")),
         rag_context=str(memory_context.get("rag_context", "")),
     )
 
 
-def _empty_memory_context() -> dict[str, object]:
-    """Return the default memory context shape used by the query pipeline."""
-    return {
-        "vector_results": [],
-        "window_messages": [],
-        "summary": "",
-        "rag_context": "",
-        "aggregated_context": "",
-    }
+# --------------------------------------------------
+# Main Pipeline
+# --------------------------------------------------
 
-# pylint: disable=too-many-locals,too-many-branches,too-many-statements
 async def handle_query(
     user_question: str,
     user_id: str = "anonymous",
     session_id: str | None = None,
-) -> tuple[str, float, str]:
-    """Handle one user question and return answer, confidence, and session ID."""
+):
+
     if not user_question or not user_question.strip():
-        raise ValueError("Question cannot be empty.")
+        raise ValueError("Question cannot be empty")
 
     session_ctx = container.session_manager.resolve(
         user_id=user_id,
         session_id=session_id,
     )
+
     metrics.increment_requests("/api/chat")
+
     logger.info(
         "Starting query pipeline user_id=%s session_id=%s",
         session_ctx.user_id,
@@ -128,134 +156,191 @@ async def handle_query(
     )
 
     if _is_greeting(user_question):
-        logger.info("Greeting detected, returning conversational response")
         return "Hi! How can I help you today?", 1.0, session_ctx.session_id
 
     with tracing.span("query.handle"):
+
+        # ---------------------------
+        # Intent detection
+        # ---------------------------
+
         intent = classify_intent(user_question)
+        intent = _force_sql_if_db_related(user_question, intent)
+
         logger.info("Intent detected: %s", intent)
+
         refined_question = apply_rules(user_question, intent)
 
+        # ---------------------------
+        # Memory retrieval
+        # ---------------------------
+
         try:
+
             memory_context = await container.memory_manager.get_context_for_llm(
                 user_id=session_ctx.user_id,
                 session_id=session_ctx.session_id,
                 user_query=refined_question,
             )
-            logger.info("Hybrid memory context retrieved")
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.exception(
-                "Hybrid memory context retrieval failed; continuing with empty context"
-            )
-            metrics.increment_errors("memory_context")
-            log_event(
-                "warning",
-                "memory_context_unavailable",
-                user_id=session_ctx.user_id,
-                session_id=session_ctx.session_id,
-                error=str(exc).strip() or type(exc).__name__,
-            )
-            memory_context = _empty_memory_context()
 
-        context = str(memory_context.get("aggregated_context", "") or "")
+        except Exception:
+
+            logger.exception("Memory retrieval failed")
+
+            memory_context = {
+                "vector_results": [],
+                "window_messages": [],
+                "summary": "",
+                "rag_context": "",
+                "aggregated_context": "",
+            }
+
+        context = str(memory_context.get("aggregated_context", ""))
+
+        # ---------------------------
+        # SQL generation
+        # ---------------------------
 
         sql_query = ""
         sql_is_valid = False
+
         if intent == "sql":
+
             try:
+
                 sql_prompt = build_prompt(refined_question, context, "sql")
-                with metrics.timer("llm_latency"):
-                    sql_llm_response = await asyncio.to_thread(call_llm, sql_prompt)
-                sql_query = _extract_sql(sql_llm_response)
-                logger.info("SQL candidate generated: %s", sql_query)
+
+                sql_llm_output = await asyncio.to_thread(call_llm, sql_prompt)
+
+                sql_query = _extract_sql(sql_llm_output)
+
+                logger.info("SQL candidate: %s", sql_query)
 
                 sql_is_valid = validate_sql(sql_query)
+
+                # retry once if invalid
                 if not sql_is_valid:
-                    logger.warning(
-                        "First SQL candidate failed validation; retrying SQL generation once"
-                    )
-                    retry_prompt = (
-                        f"{sql_prompt}\n"
-                        "Important:\n"
-                        f"- Use only one table: {DB_TABLE}\n"
-                        "- Return exactly one valid SELECT query and nothing else.\n"
-                    )
-                    with metrics.timer("llm_latency"):
-                        retry_sql_response = await asyncio.to_thread(call_llm, retry_prompt)
-                    sql_query = _extract_sql(retry_sql_response)
-                    logger.info("Retry SQL candidate generated")
+
+                    retry_prompt = f"""
+Generate a valid MySQL SELECT query.
+
+Rules:
+- Use table: {DB_TABLE}
+- Do not invent columns
+- Return ONLY SQL
+"""
+
+                    retry_output = await asyncio.to_thread(call_llm, retry_prompt)
+
+                    sql_query = _extract_sql(retry_output)
+
                     sql_is_valid = validate_sql(sql_query)
-            except RuntimeError as exc:
-                logger.error("SQL generation pipeline failed: %s", exc)
-                metrics.increment_errors("sql_generation")
-                log_event(
-                    "warning",
-                    "sql_generation_failed",
-                    user_id=session_ctx.user_id,
-                    session_id=session_ctx.session_id,
-                    error=str(exc).strip() or type(exc).__name__,
-                )
-        else:
-            logger.info("Intent=%s; skipping SQL generation stage", intent)
+
+            except Exception:
+
+                logger.exception("SQL generation failed")
+
+        # ---------------------------
+        # SQL execution
+        # ---------------------------
 
         if sql_is_valid:
+
             logger.info("SQL validated successfully")
-            with metrics.timer("sql_execution_latency"):
-                results = await asyncio.to_thread(execute_safe_query, sql_query)
-            if isinstance(results, str):
-                answer = results
-                confidence = 0.0
+
+            results = await asyncio.to_thread(execute_safe_query, sql_query)
+
+            if not results:
+
+                answer = "No data found for your query."
+                confidence = 0.85
+
             else:
-                answer = format_sql_results(results, user_question)
-                confidence = 1.0
-        else:
-            if intent == "sql":
-                logger.warning(
-                    "SQL generation/validation failed; falling back to general answer."
+
+                answer = await asyncio.to_thread(
+                    synthesize_natural_response,
+                    user_question,
+                    results,
                 )
-            else:
-                logger.info("Using general-answer stage for non-SQL intent")
-            general_prompt = _build_general_prompt(refined_question, memory_context)
+
+                confidence = 0.95
+
+        else:
+
+            logger.warning("Falling back to general pipeline")
+
+            general_prompt = _build_general_prompt(
+                refined_question,
+                memory_context,
+            )
+
             try:
-                with metrics.timer("llm_latency"):
-                    llm_response = await asyncio.to_thread(call_llm, general_prompt)
-                confidence = check_confidence(llm_response, context)
+
+                llm_response = await asyncio.to_thread(call_llm, general_prompt)
+
                 answer = llm_response
-            except RuntimeError as e:
-                # Intercept the LLM failure here!
-                logger.error("LLM Pipeline failed: %s", e)
+
+                confidence = check_confidence(llm_response, context)
+
+            except Exception:
+
                 answer = LLM_BACKPRESSURE_MESSAGE
                 confidence = 0.0
 
         answer = format_answer(answer)
-        if not answer:
-            raise RuntimeError("No answer generated by the pipeline.")
+
+        # ---------------------------
+        # Memory update
+        # ---------------------------
 
         try:
+
             await container.memory_manager.update_memory_pipeline(
                 user_id=session_ctx.user_id,
                 session_id=session_ctx.session_id,
                 question=user_question,
                 answer=answer,
             )
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.exception(
-                "Memory pipeline update failed; returning response without memory persistence"
-            )
-            metrics.increment_errors("memory_update")
-            log_event(
-                "warning",
-                "memory_pipeline_update_failed",
-                user_id=session_ctx.user_id,
-                session_id=session_ctx.session_id,
-                error=str(exc).strip() or type(exc).__name__,
-            )
+
+        except Exception:
+
+            logger.exception("Memory update failed")
+
         log_event(
             "info",
             "query_pipeline_completed",
             user_id=session_ctx.user_id,
             session_id=session_ctx.session_id,
-            confidence=round(float(confidence), 3),
+            confidence=confidence,
         )
+
         logger.info("Query pipeline completed")
+
         return answer, confidence, session_ctx.session_id
+
+
+# --------------------------------------------------
+# SQL answer synthesis
+# --------------------------------------------------
+
+def synthesize_natural_response(user_question, db_result):
+
+    prompt = f"""
+Answer the question using ONLY the provided database result.
+
+Question:
+{user_question}
+
+Database Result:
+{db_result}
+
+Write a natural answer.
+"""
+
+    try:
+
+        return call_llm(prompt, max_tokens=80).strip()
+
+    except Exception:
+
+        return format_sql_results(db_result, user_question)

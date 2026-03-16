@@ -1,16 +1,63 @@
 # Example Questions and Answers for AI Knowledge Assistant
 
-Q: How many users are registered in the system?
-A: SELECT COUNT(*) FROM users;
+# Example Questions and Answers for AI Knowledge Assistant
 
-Q: List all orders made by user with id 5.
-A: SELECT * FROM orders WHERE user_id = 5;
+Q: How many total bookings are there?
+A: SELECT COUNT(*) FROM hotel_reservations;
 
-Q: Show the name and email of all users.
-A: SELECT name, email FROM users;
+Q: Show all booking IDs where the number of children is greater than 2.
+A: SELECT Booking_ID FROM hotel_reservations WHERE no_of_children > 2;
 
-Q: How many orders have been placed today?
-A: SELECT COUNT(*) FROM orders WHERE DATE(order_date) = CURDATE();
+Q: How many bookings were made through the Online market segment?
+A: SELECT COUNT(*) FROM hotel_reservations WHERE market_segment_type = 'Online';
 
-Q: Get all products ordered with quantity more than 10.
-A: SELECT * FROM orders WHERE quantity > 10;
+Q: How many bookings were made through the Offline market segment?
+A: SELECT COUNT(*) FROM hotel_reservations WHERE market_segment_type = 'Offline';
+
+Q: Show all booking IDs and room types for repeated guests.
+A: SELECT Booking_ID, room_type_reserved FROM hotel_reservations WHERE repeated_guest = 1;
+
+Q: How many bookings required car parking space?
+A: SELECT COUNT(*) FROM hotel_reservations WHERE required_car_parking_space = 1;
+
+Q: How many canceled bookings are there?
+A: SELECT COUNT(*) FROM hotel_reservations WHERE booking_status = 'Canceled';
+
+Q: How many non-canceled bookings are there?
+A: SELECT COUNT(*) FROM hotel_reservations WHERE booking_status = 'Not_Canceled';
+
+Q: What is the average price per room for all bookings?
+A: SELECT AVG(avg_price_per_room) FROM hotel_reservations;
+
+Q: Show all bookings with average price per room greater than 100.
+A: SELECT Booking_ID, avg_price_per_room FROM hotel_reservations WHERE avg_price_per_room > 100;
+
+Q: How many bookings arrived in 2018?
+A: SELECT COUNT(*) FROM hotel_reservations WHERE arrival_year = 2018;
+
+Q: How many bookings are there for each market segment?
+A: SELECT market_segment_type, COUNT(*) FROM hotel_reservations GROUP BY market_segment_type;
+
+Q: How many bookings are there for each booking status?
+A: SELECT booking_status, COUNT(*) FROM hotel_reservations GROUP BY booking_status;
+
+Q: Show all bookings with more than 2 special requests.
+A: SELECT Booking_ID, no_of_special_requests FROM hotel_reservations WHERE no_of_special_requests > 2;
+
+Q: What is the maximum average price per room?
+A: SELECT MAX(avg_price_per_room) FROM hotel_reservations;
+
+Q: What is the minimum average price per room?
+A: SELECT MIN(avg_price_per_room) FROM hotel_reservations;
+
+Q: Show all bookings where the meal plan is Meal Plan 1.
+A: SELECT Booking_ID, type_of_meal_plan FROM hotel_reservations WHERE type_of_meal_plan = 'Meal Plan 1';
+
+Q: Show all bookings where the room type reserved is Room_Type 1.
+A: SELECT Booking_ID, room_type_reserved FROM hotel_reservations WHERE room_type_reserved = 'Room_Type 1';
+
+Q: How many repeated guests had previous cancellations greater than 0?
+A: SELECT COUNT(*) FROM hotel_reservations WHERE repeated_guest = 1 AND no_of_previous_cancellations > 0;
+
+Q: Show all bookings where the number of adults is 2 and the number of children is 1.
+A: SELECT Booking_ID FROM hotel_reservations WHERE no_of_adults = 2 AND no_of_children = 1;

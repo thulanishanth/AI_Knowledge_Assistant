@@ -1,6 +1,10 @@
 # AI_Knowledge_Assistant/app/db/mysql.py
 """MySQL connection management with lazy singleton pooling."""
+
+from __future__ import annotations
+
 from functools import lru_cache
+
 import mysql.connector
 from mysql.connector import Error, pooling
 from mysql.connector.connection import MySQLConnection
@@ -10,6 +14,7 @@ from app.config import DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
 
 @lru_cache(maxsize=1)
 def _get_pool() -> pooling.MySQLConnectionPool:
@@ -21,8 +26,8 @@ def _get_pool() -> pooling.MySQLConnectionPool:
         logger.info("Initializing MySQL Connection Pool...")
         pool = mysql.connector.pooling.MySQLConnectionPool(
             pool_name="ai_assistant_pool",
-            pool_size=10,             # Keep 10 connections warm and ready
-            pool_reset_session=True,  # Wipe temporary variables when returned to pool
+            pool_size=10,
+            pool_reset_session=True,
             host=DB_HOST,
             port=DB_PORT,
             user=DB_USER,
@@ -31,10 +36,11 @@ def _get_pool() -> pooling.MySQLConnectionPool:
         )
         logger.info("MySQL Connection Pool established successfully.")
         return pool
-    except Error as e:
-        error_message = str(e).strip() or f"{e.__class__.__name__} occurred with no message."
+    except Error as exc:
+        error_message = str(exc).strip() or f"{exc.__class__.__name__} occurred with no message."
         logger.exception("Failed to create MySQL Connection Pool: %s", error_message)
-        raise  # If we can't connect to the DB on startup, we should fail loudly
+        raise
+
 
 def create_db_connection() -> PooledMySQLConnection | MySQLConnection | None:
     """
@@ -46,26 +52,36 @@ def create_db_connection() -> PooledMySQLConnection | MySQLConnection | None:
         connection = pool.get_connection()
         logger.debug("Fetched connection from MySQL pool")
         return connection
-    except Error as e:
-        error_message = str(e).strip() or f"{e.__class__.__name__} occurred with no message."
+    except Error as exc:
+        error_message = str(exc).strip() or f"{exc.__class__.__name__} occurred with no message."
         logger.exception("Error fetching connection from pool: %s", error_message)
         return None
 
-def get_connection():
+
+def get_connection() -> PooledMySQLConnection | MySQLConnection | None:
     """
     Alias for backward compatibility.
     """
     return create_db_connection()
 
-def close_connection(connection):
+
+def close_connection(connection: PooledMySQLConnection | MySQLConnection | None) -> None:
     """
     Safely return a connection to the pool.
 
+    Important:
+    Do NOT call `is_connected()` here. With mysql-connector, that check can raise
+    `InternalError: Unread result found` if a cursor still has pending rows.
+    Calling `.close()` on a pooled connection safely returns it to the pool.
+
     Args:
-        connection: MySQL connection object.
+        connection: MySQL connection object or pooled connection.
     """
-    if connection and connection.is_connected():
-        # Magic: Because this is a PooledMySQLConnection, calling .close()
-        # does NOT sever the TCP link. It simply hands it back to the pool!
+    if connection is None:
+        return
+
+    try:
         connection.close()
         logger.debug("MySQL connection returned to pool")
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.debug("Failed to return MySQL connection to pool: %s", exc)

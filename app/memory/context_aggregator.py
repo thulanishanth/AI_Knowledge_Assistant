@@ -2,29 +2,51 @@
 """Context aggregation for final LLM prompt assembly."""
 
 from __future__ import annotations
+from typing import Sequence
 
 
-class ContextAggregator:  # pylint: disable=too-few-public-methods
-    """Merges contexts in strict priority order for LLM usage."""
-
+class ContextAggregator:
+    """Merges contexts in strict priority order for optimal LLM attention."""
 
     def aggregate(
         self,
-        vector_context: list[str],
-        window_context: list[str],
-        summary_context: str,
-        rag_context: str,
+        vector_context: Sequence[str] | None,
+        window_context: Sequence[str] | None,
+        summary_context: str | None,
+        rag_context: str | None,
     ) -> str:
-        """Build a single prompt context string from memory and RAG sources."""
+        """Build a single, clean prompt context string from memory and RAG sources."""
         sections: list[str] = []
 
-        if vector_context:
-            sections.append("Vector Memory:\n" + "\n".join(f"- {item}" for item in vector_context))
-        if window_context:
-            sections.append("Session Window:\n" + "\n".join(f"- {item}" for item in window_context))
-        if summary_context.strip():
-            sections.append("Summary Memory:\n" + summary_context.strip())
-        if rag_context.strip():
-            sections.append("RAG Schema Context:\n" + rag_context.strip())
+        # 1. RAG Schema (Highest Priority Grounding: placed first)
+        if rag_context and (clean_rag := rag_context.strip()):
+            sections.append(f"RAG Schema Context:\n{clean_rag}")
 
-        return "\n\n".join(sections).strip()
+        # 2. Summary Memory (Distant context)
+        if summary_context and (clean_summary := summary_context.strip()):
+            sections.append(f"Summary Memory:\n{clean_summary}")
+
+        # 3. Vector Memory (Semantically retrieved related context)
+        if vector_context:
+            # Filter out empty strings or None values gracefully
+            clean_vectors = [
+                item.strip() for item in vector_context 
+                if item and item.strip()
+            ]
+            if clean_vectors:
+                sections.append(
+                    "Vector Memory:\n" + "\n".join(f"- {item}" for item in clean_vectors)
+                )
+
+        # 4. Session Window (Immediate context: placed last so it sits right above the user prompt)
+        if window_context:
+            clean_window = [
+                item.strip() for item in window_context 
+                if item and item.strip()
+            ]
+            if clean_window:
+                sections.append(
+                    "Session Window:\n" + "\n".join(f"- {item}" for item in clean_window)
+                )
+
+        return "\n\n".join(sections)  
