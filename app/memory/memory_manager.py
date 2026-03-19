@@ -70,39 +70,41 @@ class MemoryManager:
         session_id: str,
         user_query: str,
         rag_context: str | None = None,
+        include_vector: bool = True,
     ) -> dict[str, Any]:
         """Assemble vector, window, summary, and RAG context with fault-tolerant concurrency."""
         with tracing.span("memory.get_context_for_llm"), metrics.timer("memory_context_assembly"):
-            
-            # 1. Define all retrieval tasks
-            tasks = [
-                self.fetch_relevant_context(user_id, session_id, user_query),
-                self._window_memory.get_window(user_id, session_id),
-                self._summary_memory.get_summary(user_id, session_id),
-            ]
-            
+
+            vector_results: list[dict[str, Any]] = []
+            tasks = []
+            if include_vector:
+                tasks.append(self.fetch_relevant_context(user_id, session_id, user_query))
+            tasks.extend(
+                [
+                    self._window_memory.get_window(user_id, session_id),
+                    self._summary_memory.get_summary(user_id, session_id),
+                ]
+            )
+
             if rag_context is None:
                 tasks.append(asyncio.to_thread(retrieve_context, user_query))
 
-            # 2. Execute concurrently with return_exceptions=True to prevent a single failure from crashing everything
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # 3. Safely unpack and validate results
-            vector_results = results[0] if not isinstance(results[0], Exception) else []
-            window_messages = results[1] if not isinstance(results[1], Exception) else []
-            summary = results[2] if not isinstance(results[2], Exception) else ""
-            
-            if rag_context is None:
-                rag = results[3] if not isinstance(results[3], Exception) else ""
-            else:
-                rag = rag_context
+            result_index = 0
+            if include_vector:
+                vector_results = results[result_index] if not isinstance(results[result_index], Exception) else []
+                result_index += 1
+            window_messages = results[result_index] if not isinstance(results[result_index], Exception) else []
+            result_index += 1
+            summary = results[result_index] if not isinstance(results[result_index], Exception) else ""
+            result_index += 1
+            rag = results[result_index] if rag_context is None and not isinstance(results[result_index], Exception) else rag_context or ""
 
-            # Log component failures if any occurred
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
                     logger.error("Context retrieval component %s failed: %s", i, result)
 
-            # 4. Extract safe strings
             vector_texts = [
                 str(item.get("text", "")).strip()
                 for item in vector_results
@@ -118,14 +120,14 @@ class MemoryManager:
                 vector_context=vector_texts,
                 window_context=window_texts,
                 summary_context=summary,
-                rag_context=rag or "",
+                rag_context=rag,
             )
             
             return {
                 "vector_results": vector_results,
                 "window_messages": window_messages,
                 "summary": summary,
-                "rag_context": rag or "",
+                "rag_context": rag,
                 "aggregated_context": aggregated,
             }
 

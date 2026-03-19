@@ -1,9 +1,8 @@
-# AI_Knowledge_Assistant/app/main.py
 """FastAPI application bootstrap and lifecycle wiring."""
 
 from __future__ import annotations
 
-import asyncio                                         
+import asyncio
 import contextlib
 import time
 import uuid
@@ -16,12 +15,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
-from app.api import chat
-from app.config import LOG_FILE, LOG_LEVEL
+from app.api.routes import chat_routes
 from app.core.dependency_injection import container
+from app.core.settings import settings
 from app.utils.logger import clear_request_id, get_logger, set_request_id, setup_logging
 
-setup_logging(LOG_LEVEL, LOG_FILE or None)
+setup_logging()
 logger = get_logger(__name__)
 
 @contextlib.asynccontextmanager
@@ -52,12 +51,12 @@ app.state.cleanup_task = None
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For development. In production, use specific domains.
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows POST, GET, etc.
-    allow_headers=["*"],  # Allows custom headers like Content-Type
+    allow_origins=list(settings.cors_allowed_origins),
+    allow_credentials=list(settings.cors_allowed_origins) != ["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-Request-ID"],
 )
-app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
+app.include_router(chat_routes.router, prefix="/api/chat", tags=["Chat"])
 
 @app.middleware("http")
 async def request_logging_middleware(
@@ -92,7 +91,7 @@ def _api_status_message(frontend_dir: Path, frontend_index: Path) -> str:
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_DIR = BASE_DIR / "frontend"
+FRONTEND_DIR = settings.frontend_path if settings.frontend_path.exists() else BASE_DIR / "frontend"
 FRONTEND_INDEX = FRONTEND_DIR / "index.html"
 
 if FRONTEND_DIR.exists() and FRONTEND_INDEX.exists():

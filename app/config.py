@@ -1,10 +1,10 @@
 #AI_Knowledge_Assistant/app/config.py
 """Backward-compatible config exports.
 
-New code should import `app.core.config.settings`.
+New code should import `app.core.settings.settings`.
 """
 
-from app.core.config import settings
+from app.core.settings import settings
 
 DB_HOST = settings.db_host
 DB_PORT = settings.db_port
