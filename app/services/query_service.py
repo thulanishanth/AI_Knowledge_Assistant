@@ -1,19 +1,17 @@
-"""Backward-compatible query service facade."""
-
 from __future__ import annotations
 
 import asyncio
 import re
 
-from app.services.confidence_checker import check_confidence
 from app.core.dependency_injection import container
-from app.security.sql_guard import validate_sql
-from app.services.intent_classifier import classify_intent
+from app.services.confidence_checker import check_confidence
+from app.services.intent_service import IntentService
 from app.services.llm_client import call_llm
 from app.services.prompt_builder import build_prompt
-from app.services.rule_engine import apply_rules
 from app.services.response_formatter import format_answer, format_sql_results
+from app.services.rule_engine import apply_rules
 from app.services.sql_execution_service import execute_safe_query
+from app.security.sql_guard import validate_sql
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -84,7 +82,7 @@ async def handle_query(
     if _is_greeting(user_question):
         return "Hi! How can I help you today?", 1.0, session_ctx.session_id
 
-    intent = classify_intent(user_question)
+    intent = IntentService.classify_legacy(user_question)
     refined_question = apply_rules(user_question, intent)
     memory_context = await container.memory_manager.get_context_for_llm(
         user_id=session_ctx.user_id,
@@ -110,7 +108,7 @@ async def handle_query(
                 llm_response = await asyncio.to_thread(call_llm, general_prompt)
                 answer = llm_response
                 confidence = check_confidence(llm_response, context)
-            except Exception:  # pragma: no cover
+            except Exception:
                 answer = LLM_BACKPRESSURE_MESSAGE
                 confidence = 0.0
         return format_answer(answer), confidence, session_ctx.session_id
