@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/vector_store/chroma_adapter.py
+#app/vector_store/chroma_adapter.py
 """Chroma vector store adapter with a seamless in-memory fallback."""
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.core.config import settings
-from app.utils.logger import get_logger
+from app.core.settings import settings
+from app.core.logging import get_logger
 from app.vector_store.vector_store_interface import (
     VectorRecord,
     VectorSearchResult,

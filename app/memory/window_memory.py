@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/memory/window_memory.py
+#app/memory/window_memory.py
 """Session window memory for recent conversational turns."""
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ from collections import OrderedDict, deque
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
-from app.core.config import settings
-from app.utils.logger import get_logger
+from app.core.settings import settings
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

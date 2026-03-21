@@ -1,12 +1,12 @@
-# AI_Knowledge_Assistant/app/services/prompt_builder.py
+#app/services/prompt_builder.py
 """Prompt templates for SQL mode and memory-augmented answers."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable
 
-from app.config import DB_TABLE
-from app.utils.logger import get_logger
+from app.core.settings import settings
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -55,7 +55,7 @@ def build_prompt(user_question: str, context: str, intent: str) -> str:
                 "- Output only SQL.",
                 "- Output exactly one query.",
                 "- The query must start with SELECT.",
-                f"- Use only this allowed table: {DB_TABLE}.",
+                f"- Use only this allowed table: {settings.db_table}.",
                 "- Use only column names explicitly present in the provided schema/context.",
                 "- For categorical or text filters, use only values explicitly shown in the schema/context.",
                 "- Do not invent category values, labels, status names, segment names, room types, meal plans, or booking states.",

@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/core/session_manager.py
+#app/core/session_manager.py
 """Session and user identity helpers for multi-tenant requests."""
 
 from __future__ import annotations

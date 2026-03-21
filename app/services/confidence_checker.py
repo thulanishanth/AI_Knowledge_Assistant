@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/services/confidence_checker.py
+#app/services/confidence_checker.py
 """
 Heuristic-based confidence scoring for LLM generation results.
 Includes lexical context-grounding to detect hallucinations.
@@ -7,7 +7,7 @@ Includes lexical context-grounding to detect hallucinations.
 import re
 from typing import Set
 
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

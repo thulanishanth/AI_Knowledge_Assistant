@@ -1,3 +1,4 @@
+#app/api/models.py
 """API request and response contracts."""
 
 from __future__ import annotations
@@ -29,6 +30,12 @@ class ChatMessage(BaseModel):
     confidence: float | None = None
 
 
-class SessionHistoryResponse(BaseModel):
+class SessionSummary(BaseModel):
+    id: str
     session_id: str
-    messages: list[ChatMessage]
+    title: str
+
+
+class SessionHistoryResponse(BaseModel):
+    user_id: str
+    sessions: list[SessionSummary]

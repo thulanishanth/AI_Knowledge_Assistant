@@ -1,3 +1,4 @@
+#app/services/query_service.py
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +13,7 @@ from app.services.response_formatter import format_answer, format_sql_results
 from app.services.rule_engine import apply_rules
 from app.services.sql_execution_service import execute_safe_query
 from app.security.sql_guard import validate_sql
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

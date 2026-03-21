@@ -1,11 +1,11 @@
-# AI_Knowledge_Assistant/app/services/rule_engine.py
+#app/services/rule_engine.py
 """Rule-based preprocessing for user questions."""
 
 from __future__ import annotations
 
 import re
 
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

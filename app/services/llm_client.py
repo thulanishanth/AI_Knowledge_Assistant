@@ -1,11 +1,11 @@
-# AI_Knowledge_Assistant/app/services/llm_client.py
+#app/services/llm_client.py
 """LLM client wrapper with router-first, legacy fallback, and retry strategy."""
 
 import time
 from huggingface_hub import InferenceClient
 
 from app.core.settings import settings
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

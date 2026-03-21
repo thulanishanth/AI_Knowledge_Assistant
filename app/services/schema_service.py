@@ -1,3 +1,4 @@
+#app/services/schema_service.py
 """Cached live-schema access and prompt enrichment."""
 
 from __future__ import annotations

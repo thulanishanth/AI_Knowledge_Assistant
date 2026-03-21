@@ -1,11 +1,11 @@
-# AI_Knowledge_Assistant/app/services/rag_filler.py
+#app/services/rag_filler.py
 """Adds supplemental context to RAG results from local reference files."""
 from pathlib import Path
 import re
 from typing import List, Set
 
-from app.config import DB_TABLE
-from app.utils.logger import get_logger
+from app.core.settings import settings
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -52,7 +52,7 @@ def _extract_keywords(question: str) -> List[str]:
 def _extract_context_terms(base_context: str) -> Set[str]:
     """Extract DB/table/column-like terms from live context."""
     terms: Set[str] = set()
-    terms.add(DB_TABLE.lower())
+    terms.add(settings.db_table.lower())
     for token in re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{2,}", (base_context or "").lower()):
         terms.add(token)
     return terms
@@ -64,7 +64,7 @@ def _is_schema_relevant(schema_text: str, base_context: str) -> bool:
         return False
 
     lowered = schema_text.lower()
-    table_name = DB_TABLE.lower()
+    table_name = settings.db_table.lower()
     if re.search(rf"\bcreate\s+table\s+`?{re.escape(table_name)}`?\b", lowered):
         return True
 

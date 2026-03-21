@@ -1,3 +1,4 @@
+#app/infrastructure/repositories/chat_history_repository.py
 """Repository for persisted chat history and session metadata."""
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from mysql.connector import Error
 from app.core.settings import settings
 from app.infrastructure.mysql_pool import close_connection, create_db_connection
 from app.security.input_sanitizer import normalize_role
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

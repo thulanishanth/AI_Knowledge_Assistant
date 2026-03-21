@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/observability/structured_logger.py
+#app/observability/structured_logger.py
 """Structured logging helpers."""
 
 from __future__ import annotations
@@ -7,8 +7,8 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from app.core.config import settings
-from app.utils.logger import get_logger
+from app.core.settings import settings
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

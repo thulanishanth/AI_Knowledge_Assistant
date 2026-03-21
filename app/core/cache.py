@@ -1,3 +1,4 @@
+#app/core/cache.py
 """Small in-memory TTL cache used for schema and query result reuse."""
 
 from __future__ import annotations

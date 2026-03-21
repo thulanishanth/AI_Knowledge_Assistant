@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/services/embedding_service.py
+#app/services/embedding_service.py
 """Embedding service abstraction with pluggable providers."""
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ from typing import Any
 
 import httpx
 
-from app.core.config import settings
-from app.utils.logger import get_logger
+from app.core.settings import settings
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

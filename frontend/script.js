@@ -1,3 +1,4 @@
+/*frontend/script.js*/ 
 const chatForm = document.getElementById("chat-form");
 const userInput = document.getElementById("user-input");
 const chatContainer = document.getElementById("chat-container");
@@ -69,15 +70,15 @@ function buildInlineContent(text) {
   const fragment = document.createDocumentFragment();
   const segments = String(text).split(/(`[^`]+`)/g);
   segments.forEach((segment) => {
-    if (!segment) {
-      return;
-    }
+    if (!segment) return;
+
     if (segment.startsWith("`") && segment.endsWith("`")) {
       const code = document.createElement("code");
       code.textContent = segment.slice(1, -1);
       fragment.appendChild(code);
       return;
     }
+
     fragment.appendChild(document.createTextNode(segment));
   });
   return fragment;
@@ -90,9 +91,7 @@ function renderSafeText(container, content) {
   let ordered = false;
 
   const flushParagraph = () => {
-    if (!paragraph.length) {
-      return;
-    }
+    if (!paragraph.length) return;
     const p = document.createElement("p");
     p.appendChild(buildInlineContent(paragraph.join(" ")));
     container.appendChild(p);
@@ -118,12 +117,14 @@ function renderSafeText(container, content) {
     if (orderedMatch || bulletMatch) {
       flushParagraph();
       const shouldBeOrdered = Boolean(orderedMatch);
+
       if (!list || ordered !== shouldBeOrdered) {
         flushList();
         list = document.createElement(shouldBeOrdered ? "ol" : "ul");
         ordered = shouldBeOrdered;
         container.appendChild(list);
       }
+
       const item = document.createElement("li");
       item.appendChild(buildInlineContent(orderedMatch ? orderedMatch[2] : bulletMatch[1]));
       list.appendChild(item);
@@ -185,7 +186,11 @@ function renderPresentation(presentation) {
     return block;
   }
 
-  if (presentation.kind === "rows" && Array.isArray(presentation.columns) && Array.isArray(presentation.rows)) {
+  if (
+    presentation.kind === "rows" &&
+    Array.isArray(presentation.columns) &&
+    Array.isArray(presentation.rows)
+  ) {
     const useCards =
       presentation.layout === "cards" ||
       presentation.columns.length > 5 ||
@@ -194,9 +199,11 @@ function renderPresentation(presentation) {
     if (useCards) {
       const cardList = document.createElement("div");
       cardList.className = "result-cards";
+
       presentation.rows.forEach((row) => {
         const card = document.createElement("div");
         card.className = "result-card";
+
         presentation.columns.forEach((column, index) => {
           const label = document.createElement("div");
           label.className = "field-label";
@@ -208,8 +215,10 @@ function renderPresentation(presentation) {
 
           card.append(label, value);
         });
+
         cardList.appendChild(card);
       });
+
       block.appendChild(cardList);
     } else {
       const grid = document.createElement("div");
@@ -244,6 +253,7 @@ function renderPresentation(presentation) {
       note.appendChild(chip);
       block.appendChild(note);
     }
+
     return block;
   }
 
@@ -331,7 +341,6 @@ function appendMessage({
   }
 
   const shouldRenderText = Boolean(content) && presentation?.kind !== "notice";
-
   if (shouldRenderText) {
     const text = document.createElement("div");
     text.className = "message-text";
@@ -384,6 +393,7 @@ function showLoading() {
 
   const card = document.createElement("div");
   card.className = "message-card";
+
   ["60%", "90%", "74%"].forEach((width) => {
     const bar = document.createElement("div");
     bar.className = "loading-bar";
@@ -450,7 +460,7 @@ async function loadHistory() {
   try {
     const response = await fetch(`/api/chat/history/${userId}`);
     const data = await response.json();
-    renderHistory(Array.isArray(data.history) ? data.history : []);
+    renderHistory(Array.isArray(data.sessions) ? data.sessions : []);
   } catch (error) {
     console.error("Failed to load history", error);
     renderHistory([]);
@@ -458,9 +468,7 @@ async function loadHistory() {
 }
 
 async function loadSessionData(targetSessionId) {
-  if (!targetSessionId) {
-    return;
-  }
+  if (!targetSessionId) return;
 
   sessionId = targetSessionId;
   markActiveHistoryItem(targetSessionId);
@@ -483,12 +491,13 @@ async function loadSessionData(targetSessionId) {
     }
 
     clearMessages();
-    if (!Array.isArray(data.messages) || !data.messages.length) {
+
+    if (!Array.isArray(data) || !data.length) {
       showEmptyState();
       return;
     }
 
-    data.messages.forEach((message) => {
+    data.forEach((message) => {
       appendMessage({
         role: message.role === "user" ? "user" : "assistant",
         content: message.content,
@@ -510,11 +519,10 @@ async function loadSessionData(targetSessionId) {
 
 async function submitQuestion(question, isRetry = false) {
   const cleanedQuestion = String(question || "").trim();
-  if (!cleanedQuestion) {
-    return;
-  }
+  if (!cleanedQuestion) return;
 
   lastQuestion = cleanedQuestion;
+
   if (!isRetry) {
     appendMessage({ role: "user", content: cleanedQuestion });
   }

@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/services/reranker_service.py
+#app/services/reranker_service.py
 """Re-ranking service to improve retrieval relevance using Cross-Encoders."""
 
 from __future__ import annotations
@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

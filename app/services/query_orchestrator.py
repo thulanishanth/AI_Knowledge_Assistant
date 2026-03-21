@@ -1,3 +1,4 @@
+#app/services/query_orchestrator.py
 """End-to-end database-grounded chat query orchestration."""
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from app.services.response_formatter import ResponseFormatter
 from app.services.schema_service import SchemaService
 from app.services.sql_execution_service import QueryExecutionResult, SQLExecutionService
 from app.services.sql_generation_service import SQLGenerationService, SqlGenerationResult
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

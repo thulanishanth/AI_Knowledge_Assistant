@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/observability/tracing.py
+#app/observability/tracing.py
 """OpenTelemetry tracing wrapper with safe fallbacks."""
 
 from __future__ import annotations
@@ -6,8 +6,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator
 
-from app.core.config import settings
-from app.utils.logger import get_logger
+from app.core.settings import settings
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

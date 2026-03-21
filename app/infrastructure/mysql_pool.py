@@ -1,3 +1,4 @@
+#app/infrastructure/vector_store/mysql_pool.py
 """MySQL pooled connection management."""
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from mysql.connector.connection import MySQLConnection
 from mysql.connector.pooling import PooledMySQLConnection
 
 from app.core.settings import settings
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

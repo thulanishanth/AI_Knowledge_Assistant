@@ -1,3 +1,4 @@
+#app/services/sql_generation_service.py
 """Grounded SQL generation with rule-based shortcuts and LLM repair."""
 
 from __future__ import annotations

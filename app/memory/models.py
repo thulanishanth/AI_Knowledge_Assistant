@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/memory/models.py
+# app/memory/models.py
 """Shared models for memory components."""
 
 from __future__ import annotations

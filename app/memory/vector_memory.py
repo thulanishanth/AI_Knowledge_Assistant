@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/memory/vector_memory.py
+#app/memory/vector_memory.py
 """Vector memory orchestration for user and global knowledge retrieval."""
 
 from __future__ import annotations
@@ -8,10 +8,10 @@ import time
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from app.core.config import settings
+from app.core.settings import settings
 from app.services.embedding_service import EmbeddingService
 from app.services.reranker_service import RerankerService
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 from app.vector_store.vector_store_interface import VectorRecord, VectorStoreInterface
 
 logger = get_logger(__name__)

@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/memory/context_aggregator.py
+# app/memory/context_aggregator.py
 """Context aggregation for final LLM prompt assembly."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+##app/core/settings.py
 """Application settings and environment parsing."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# app/security/input_sanitizer.py
 """User-input sanitization helpers for chat requests."""
 
 from __future__ import annotations

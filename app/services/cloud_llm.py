@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/services/cloud_llm.py
+# app/services/cloud_llm.py
 """Async cloud LLM client used by router-based model integrations."""
 
 from __future__ import annotations
@@ -6,7 +6,7 @@ from __future__ import annotations
 import httpx
 
 from app.core.settings import settings
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

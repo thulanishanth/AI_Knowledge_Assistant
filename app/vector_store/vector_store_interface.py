@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/vector_store/vector_store_interface.py
+#app/vector_store/vector_store_interface.py
 """Vector store abstraction for pluggable providers."""
 
 from __future__ import annotations

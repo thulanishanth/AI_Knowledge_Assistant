@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/observability/metrics.py
+#app/observability/metrics.py
 """Prometheus-compatible metrics with no-op fallback."""
 
 from __future__ import annotations
@@ -7,8 +7,8 @@ import time
 from contextlib import contextmanager
 from typing import Iterator
 
-from app.core.config import settings
-from app.utils.logger import get_logger
+from app.core.settings import settings
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

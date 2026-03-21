@@ -1,11 +1,11 @@
-# AI_Knowledge_Assistant/app/memory/summary_memory.py
+#app/memory/summary_memory.py
 """Summary memory to compress long-running conversations safely."""
 
 from __future__ import annotations
 
 from collections import OrderedDict
 
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

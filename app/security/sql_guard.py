@@ -1,3 +1,4 @@
+# app/security/sql_guard.py
 """Strict read-only SQL validation for the configured table."""
 
 from __future__ import annotations
@@ -8,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.settings import settings
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

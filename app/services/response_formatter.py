@@ -1,3 +1,4 @@
+#app/services/response_formatter.py
 """Result-aware answer formatting for chat and UI rendering."""
 
 from __future__ import annotations

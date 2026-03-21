@@ -1,3 +1,4 @@
+#app/main.py
 """FastAPI application bootstrap and lifecycle wiring."""
 
 from __future__ import annotations
@@ -15,10 +16,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import chat_routes
+from app.api.chat import router as chat_router
 from app.core.dependency_injection import container
 from app.core.settings import settings
-from app.utils.logger import clear_request_id, get_logger, set_request_id, setup_logging
+from app.core.logging import clear_request_id, get_logger, set_request_id, setup_logging
 
 setup_logging()
 logger = get_logger(__name__)
@@ -56,7 +57,7 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "X-Request-ID"],
 )
-app.include_router(chat_routes.router, prefix="/api/chat", tags=["Chat"])
+app.include_router(chat_router, prefix="/api/chat", tags=["Chat"])
 
 @app.middleware("http")
 async def request_logging_middleware(

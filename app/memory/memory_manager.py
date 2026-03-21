@@ -1,4 +1,4 @@
-# AI_Knowledge_Assistant/app/memory/memory_manager.py
+# app/memory/memory_manager.py
 """Memory orchestrator that composes vector, window, summary and RAG contexts."""
 
 from __future__ import annotations
@@ -6,7 +6,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from app.core.config import settings
+from app.core.logging import get_logger
+from app.core.settings import settings
 from app.memory.context_aggregator import ContextAggregator
 from app.memory.summary_memory import SummaryMemory
 from app.memory.vector_memory import VectorMemory
@@ -14,8 +15,7 @@ from app.memory.window_memory import WindowMemory
 from app.observability.metrics import metrics
 from app.observability.structured_logger import log_event
 from app.observability.tracing import tracing
-from app.services.rag_retriever import retrieve_context
-from app.utils.logger import get_logger
+from app.services.rag_retriever import retrieve_dynamic_rag_context
 
 logger = get_logger(__name__)
 
@@ -55,7 +55,7 @@ class MemoryManager:
                     query=user_query,
                 )
             except Exception as exc:
-                logger.exception("Vector retrieval failed; using window+summary fallback.")
+                logger.exception("Vector retrieval failed; using empty fallback.")
                 metrics.increment_errors("vector_retrieval")
                 log_event(
                     "warning",
@@ -72,13 +72,14 @@ class MemoryManager:
         rag_context: str | None = None,
         include_vector: bool = True,
     ) -> dict[str, Any]:
-        """Assemble vector, window, summary, and RAG context with fault-tolerant concurrency."""
+        """Assemble vector, window, summary, and RAG context."""
         with tracing.span("memory.get_context_for_llm"), metrics.timer("memory_context_assembly"):
-
             vector_results: list[dict[str, Any]] = []
-            tasks = []
+            tasks: list[Any] = []
+
             if include_vector:
                 tasks.append(self.fetch_relevant_context(user_id, session_id, user_query))
+
             tasks.extend(
                 [
                     self._window_memory.get_window(user_id, session_id),
@@ -87,19 +88,39 @@ class MemoryManager:
             )
 
             if rag_context is None:
-                tasks.append(asyncio.to_thread(retrieve_context, user_query))
+                tasks.append(asyncio.to_thread(retrieve_dynamic_rag_context))
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             result_index = 0
+
             if include_vector:
-                vector_results = results[result_index] if not isinstance(results[result_index], Exception) else []
+                vector_results = (
+                    results[result_index]
+                    if not isinstance(results[result_index], Exception)
+                    else []
+                )
                 result_index += 1
-            window_messages = results[result_index] if not isinstance(results[result_index], Exception) else []
+
+            window_messages = (
+                results[result_index]
+                if not isinstance(results[result_index], Exception)
+                else []
+            )
             result_index += 1
-            summary = results[result_index] if not isinstance(results[result_index], Exception) else ""
+
+            summary = (
+                results[result_index]
+                if not isinstance(results[result_index], Exception)
+                else ""
+            )
             result_index += 1
-            rag = results[result_index] if rag_context is None and not isinstance(results[result_index], Exception) else rag_context or ""
+
+            rag = (
+                results[result_index]
+                if rag_context is None and not isinstance(results[result_index], Exception)
+                else rag_context or ""
+            )
 
             for i, result in enumerate(results):
                 if isinstance(result, Exception):
@@ -110,6 +131,7 @@ class MemoryManager:
                 for item in vector_results
                 if isinstance(item, dict) and item.get("text")
             ]
+
             window_texts = [
                 f"{message.get('role', 'unknown')}: {message.get('content', '')}".strip()
                 for message in window_messages
@@ -122,7 +144,7 @@ class MemoryManager:
                 summary_context=summary,
                 rag_context=rag,
             )
-            
+
             return {
                 "vector_results": vector_results,
                 "window_messages": window_messages,
@@ -138,15 +160,13 @@ class MemoryManager:
         question: str,
         answer: str,
     ) -> None:
-        """Update session window chronologically, then execute heavy memory tasks concurrently."""
+        """Update session memory after a completed interaction."""
         with tracing.span("memory.update_pipeline"), metrics.timer("memory_update"):
             importance = self.detect_memory_importance(question, answer)
-            
-            # 1. Update WindowMemory sequentially to guarantee chronological order
+
             await self._window_memory.add_message(user_id, session_id, "user", question)
             await self._window_memory.add_message(user_id, session_id, "assistant", answer)
 
-            # 2. Execute heavy NLP/Vector I/O operations concurrently
             background_tasks = [
                 self._summary_memory.update_summary(user_id, session_id, question, answer)
             ]
@@ -162,7 +182,6 @@ class MemoryManager:
                     )
                 )
 
-            # Fire and wait for background updates, ignoring exceptions so we don't crash post-response
             await asyncio.gather(*background_tasks, return_exceptions=True)
 
             log_event(
@@ -177,20 +196,25 @@ class MemoryManager:
         """Estimate memory importance from lexical cues and response quality."""
         text = f"{question} {answer}".lower()
         score = 0.2
+
         if any(
             token in text
             for token in ["always", "preference", "remember", "important", "never"]
         ):
             score += 0.35
+
         if any(
             token in text
             for token in ["id", "email", "phone", "date", "booking", "reservation"]
         ):
             score += 0.25
+
         if len(text) > 320:
             score += 0.15
+
         if "i don't know" in text:
             score -= 0.2
+
         return max(0.0, min(1.0, score))
 
     async def run_cleanup_forever(self, interval_seconds: int = 3600) -> None:
@@ -200,11 +224,9 @@ class MemoryManager:
                 await self._vector_memory.cleanup_old_memory()
                 await asyncio.sleep(interval_seconds)
             except asyncio.CancelledError:
-                # Expected behavior when the FastAPI server shuts down
                 logger.info("Memory cleanup task gracefully shutting down.")
                 break
             except Exception:
                 logger.exception("Background memory cleanup failed")
                 metrics.increment_errors("memory_cleanup")
-                # Sleep a shorter amount on failure to prevent rapid retry loops
                 await asyncio.sleep(60)

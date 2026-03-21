@@ -1,3 +1,4 @@
+#app/infrastructure/repositories/schema_repository.py
 """Repository for live schema inspection of the configured table."""
 
 from __future__ import annotations
@@ -8,7 +9,7 @@ from mysql.connector import Error
 
 from app.core.settings import settings
 from app.infrastructure.mysql_pool import close_connection, create_db_connection
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 

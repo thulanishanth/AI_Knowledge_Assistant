@@ -1,10 +1,10 @@
-# AI_Knowledge_Assistant/app/ingestion/knowledge_ingestion.py
+#app/ingestion/knowledge_ingestion.py
 """Knowledge ingestion pipeline for global memory collection."""
 
 from __future__ import annotations
 
 from app.memory.vector_memory import VectorMemory
-from app.utils.logger import get_logger
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
