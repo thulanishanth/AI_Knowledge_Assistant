@@ -1,6 +1,4 @@
 #app/services/sql_execution_service.py
-"""Safe execution of validated read-only SQL."""
-
 from __future__ import annotations
 
 import re
@@ -16,7 +14,6 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-
 @dataclass(slots=True)
 class QueryExecutionResult:
     rows: list[dict[str, Any]]
@@ -25,9 +22,8 @@ class QueryExecutionResult:
     execution_ms: float
     executed_sql: str
 
-
 class SQLExecutionService:
-    """Execute one validated SQL query with timeout and row limits."""
+    """Execute one validated SQL query with timeout, row limits, and smart counts."""
 
     def execute(self, sql_query: str) -> QueryExecutionResult:
         connection = None
@@ -51,13 +47,40 @@ class SQLExecutionService:
                 rows = cursor.fetchmany(fetch_limit)
             else:
                 rows = cursor.fetchall()
+                
             truncated = len(rows) > settings.max_query_results
+            
+            # --- NEW SMART LOGIC: If returning a massive raw list, show the total count instead ---
+            # We skip this for queries that are ALREADY aggregated (like AVG price by month)
+            is_aggregated = bool(
+                re.search(r"\bgroup by\b|\b(count|sum|avg|max|min)\s*\(", sql_query, re.IGNORECASE)
+            )
+            
+            if truncated and not is_aggregated:
+                # Strip any limits and run a COUNT query
+                clean_sql = re.sub(r"\blimit\s+\d+\b", "", sql_query, flags=re.IGNORECASE).strip().rstrip(";")
+                
+                # FORMAT() adds the beautiful commas (e.g. "11,885")
+                count_sql = f"SELECT FORMAT(COUNT(*), 0) AS `Total Matching Bookings` FROM ({clean_sql}) AS subq;"
+                
+                cursor.execute(count_sql)
+                count_row = cursor.fetchone()
+                
+                return QueryExecutionResult(
+                    rows=[count_row] if count_row else [{"Total Matching Bookings": "0"}],
+                    row_count=1,
+                    truncated=False,
+                    execution_ms=(time.perf_counter() - started) * 1000,
+                    executed_sql=count_sql,
+                )
+            # --------------------------------------------------------------------------------------
+
             limited_rows = rows[: settings.max_query_results]
             if truncated:
                 try:
                     cursor.fetchall()
-                except Exception:  # pragma: no cover
-                    logger.debug("Failed to drain unread result set", exc_info=True)
+                except Exception:
+                    pass
 
             return QueryExecutionResult(
                 rows=limited_rows,
@@ -74,8 +97,8 @@ class SQLExecutionService:
             if cursor is not None:
                 try:
                     cursor.close()
-                except Exception:  # pragma: no cover
-                    logger.debug("Cursor close failed", exc_info=True)
+                except Exception:
+                    pass
             close_connection(connection)
 
     @staticmethod
@@ -85,13 +108,11 @@ class SQLExecutionService:
             return f"{sql};"
         return f"{sql} LIMIT {settings.max_query_results + 1};"
 
-
 _execution_service = SQLExecutionService()
-
 
 def execute_safe_query(sql_query: str) -> list[dict[str, Any]] | str:
     """Backward-compatible execution helper."""
     try:
         return _execution_service.execute(sql_query).rows
-    except Exception as exc:  # pylint: disable=broad-exception-caught
+    except Exception as exc: 
         return str(exc)

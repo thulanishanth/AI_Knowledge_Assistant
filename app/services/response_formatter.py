@@ -1,175 +1,107 @@
 #app/services/response_formatter.py
-"""Result-aware answer formatting for chat and UI rendering."""
-
 from __future__ import annotations
 
-import hashlib
-from dataclasses import dataclass, field
-from datetime import date, datetime
-from decimal import Decimal
 from typing import Any
 
 from app.core.settings import settings
+from app.services.result_analyzer import ResultAnalyzer
 
+def _titleize(value: str) -> str:
+    return str(value or "").replace("_", " ").strip().title()
 
-@dataclass(slots=True)
-class FormattedAnswer:
-    answer: str
-    presentation: dict[str, Any] | None = None
-    meta: dict[str, Any] = field(default_factory=dict)
-
-
-def format_answer(answer: str) -> str:
-    return answer.strip() if str(answer or "").strip() else "No answer generated."
-
-
-def _display_label(column_name: str) -> str:
-    return column_name.replace("_", " ").strip().title()
-
-
-def _stringify(value: object) -> str:
+def _stringify(value: Any) -> str:
     if value is None:
-        return "NULL"
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    if isinstance(value, Decimal):
-        return format(value, "f")
+        return ""
     if isinstance(value, float):
-        return f"{value:.4f}".rstrip("0").rstrip(".")
+        if value.is_integer():
+            return str(int(value))
+        return f"{value:.2f}".rstrip("0").rstrip(".")
     return str(value)
 
-
-def _stable_choice(seed: str, options: list[str]) -> str:
-    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
-    index = int(digest[:8], 16) % len(options)
-    return options[index]
-
-
 class ResponseFormatter:
-    """Create polished text plus a structured presentation payload."""
+    """Format output dynamically from result shape."""
 
-    def format_rows(
+    def __init__(self) -> None:
+        self._analyzer = ResultAnalyzer()
+
+    def format_database_result(
         self,
-        *,
         question: str,
-        session_id: str,
         rows: list[dict[str, Any]],
-        truncated: bool,
-        cached: bool,
-    ) -> FormattedAnswer:
-        if not rows:
-            return FormattedAnswer(
-                answer=_stable_choice(
-                    f"{session_id}:{question}:empty",
-                    [
-                        "No matching rows were found for that question.",
-                        "The database did not return any matching rows for that request.",
-                        "I checked the table and there were no matching records.",
-                    ],
-                ),
-                presentation={
+        truncated: bool = False,
+    ) -> tuple[str, dict[str, Any] | None]:
+        shape = self._analyzer.analyze(rows)
+
+        if shape.kind == "empty":
+            return (
+                "No matching rows were found in the database.",
+                {
                     "kind": "notice",
-                    "title": "No matching rows",
-                    "message": "The configured table returned no records for this query.",
+                    "title": "No results",
+                    "message": "No matching rows were found in the database.",
                 },
-                meta={"cached": cached},
             )
 
-        if len(rows) == 1 and len(rows[0]) == 1:
-            column_name, value = next(iter(rows[0].items()))
-            intro = _stable_choice(
-                f"{session_id}:{question}:metric",
-                [
-                    "Here is the result.",
-                    "This is the value from the database.",
-                    "The database result is below.",
-                ],
-            )
-            rendered_value = _stringify(value)
-            return FormattedAnswer(
-                answer=f"{intro}\n\n{_display_label(column_name)}: {rendered_value}",
-                presentation={
+        if shape.kind == "scalar":
+            label = _titleize(shape.scalar_label or "Result")
+            value = _stringify(shape.scalar_value)
+            
+            # Catch LLM conversational fallbacks
+            if str(shape.scalar_label).strip().lower() == "message":
+                return (
+                    value,
+                    {
+                        "kind": "notice",
+                        "title": "Assistant Notice",
+                        "message": value,
+                    },
+                )
+
+            return (
+                f"{label}: {value}",
+                {
                     "kind": "metric",
-                    "title": _display_label(column_name),
-                    "value": rendered_value,
+                    "title": label,
+                    "value": value,
                 },
-                meta={"cached": cached},
             )
 
-        if len(rows) == 1:
+        if shape.kind == "single_record":
             row = rows[0]
-            intro = _stable_choice(
-                f"{session_id}:{question}:record",
-                [
-                    "I found one matching record.",
-                    "There is one matching row in the database.",
-                    "The database returned a single matching record.",
-                ],
-            )
-            details = "\n".join(
-                f"- {_display_label(key)}: {_stringify(value)}"
+            fields = [
+                {"label": _titleize(key), "value": _stringify(value)}
                 for key, value in row.items()
+            ]
+            text = "Here is the matching record.\n\n" + "\n".join(
+                f"{field['label']}: {field['value']}" for field in fields
             )
-            return FormattedAnswer(
-                answer=f"{intro}\n\n{details}",
-                presentation={
-                    "kind": "record",
-                    "title": "Matching record",
-                    "fields": [
-                        {"label": _display_label(key), "value": _stringify(value)}
-                        for key, value in row.items()
-                    ],
-                },
-                meta={"cached": cached},
-            )
+            return text, {"kind": "record", "fields": fields}
 
-        columns = list(rows[0].keys())
-        preview_rows = rows[: settings.max_preview_rows]
-        intro = _stable_choice(
-            f"{session_id}:{question}:rows",
-            [
-                "Here are the matching rows.",
-                "These are the rows returned from the database.",
-                "The database returned the following records.",
-            ],
-        )
-        bullet_rows = []
-        for index, row in enumerate(preview_rows, start=1):
-            cell_text = " | ".join(
-                f"{_display_label(column)}: {_stringify(row.get(column))}"
-                for column in columns
-            )
-            bullet_rows.append(f"{index}. {cell_text}")
+        preview = rows[: settings.max_preview_rows]
+        columns = list(preview[0].keys())
+        formatted_rows = [
+            [_stringify(row.get(column)) for column in columns]
+            for row in preview
+        ]
 
-        answer = f"{intro}\n\n" + "\n".join(bullet_rows)
+        lines = ["Here are the matching rows."]
+        for row in formatted_rows:
+            lines.append(" | ".join(
+                f"{_titleize(column)}: {value}"
+                for column, value in zip(columns, row)
+            ))
+
         if truncated:
-            answer += f"\n\nShowing the first {settings.max_query_results} rows."
+            lines.append("")
+            lines.append("Showing a limited preview of the results.")
 
-        return FormattedAnswer(
-            answer=answer,
-            presentation={
+        return (
+            "\n\n".join(lines),
+            {
                 "kind": "rows",
-                "title": "Query results",
-                "columns": [_display_label(column) for column in columns],
-                "rows": [
-                    [_stringify(row.get(column)) for column in columns]
-                    for row in preview_rows
-                ],
+                "layout": "cards" if len(columns) > 5 else "grid",
+                "columns": [_titleize(column) for column in columns],
+                "rows": formatted_rows,
                 "truncated": truncated,
-                "layout": "cards" if len(columns) > 5 else "table",
             },
-            meta={"cached": cached},
         )
-
-
-_response_formatter = ResponseFormatter()
-
-
-def format_sql_results(results: list[dict[str, Any]], user_question: str) -> str:
-    return _response_formatter.format_rows(
-        question=user_question,
-        session_id="legacy",
-        rows=results,
-        truncated=False,
-        cached=False,
-    ).answer
