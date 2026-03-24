@@ -1,4 +1,3 @@
-#app/services/sql_generation_service.py
 from __future__ import annotations
 
 import asyncio
@@ -96,7 +95,8 @@ class SQLGenerationService:
                 "- If the user asks a conversational question or something unrelated to the database, generate exactly: SELECT 'I can only answer questions about the database.' AS message;",
                 "- For complex questions (rates, percentages, ratios), use SQL math. Example: `SUM(CASE WHEN status='Canceled' THEN 1 ELSE 0 END) / COUNT(*)`.",
                 "- Use GROUP BY and aggregate functions (COUNT, AVG, SUM, MIN, MAX) when the question implies aggregation.",
-                "- DO NOT use the LIMIT keyword. The system will automatically handle limiting and counting for you.",
+                # --- THIS IS THE RULE WE CHANGED ---
+                "- If the user asks for a specific number of results (e.g., 'top 5', 'show me 10'), you MUST use the LIMIT keyword.",
                 "- Return ONLY the raw SQL code inside a ```sql block. No explanations.",
                 "",
                 "Schema:",

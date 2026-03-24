@@ -58,7 +58,7 @@ class ResponseFormatter:
                 )
 
             return (
-                f"{label}: {value}",
+                f"**{label}:** {value}",
                 {
                     "kind": "metric",
                     "title": label,
@@ -73,34 +73,38 @@ class ResponseFormatter:
                 for key, value in row.items()
             ]
             text = "Here is the matching record.\n\n" + "\n".join(
-                f"{field['label']}: {field['value']}" for field in fields
+                f"**{field['label']}:** {field['value']}" for field in fields
             )
             return text, {"kind": "record", "fields": fields}
 
+        # --- UPDATED: PROPER MARKDOWN TABLE GENERATION ---
         preview = rows[: settings.max_preview_rows]
         columns = list(preview[0].keys())
+        
         formatted_rows = [
             [_stringify(row.get(column)) for column in columns]
             for row in preview
         ]
 
-        lines = ["Here are the matching rows."]
+        # Build Markdown Table String
+        lines = ["Here are the matching results:\n"]
+        
+        headers = [_titleize(column) for column in columns]
+        lines.append("| " + " | ".join(headers) + " |")
+        lines.append("|" + "|".join(["---"] * len(columns)) + "|")
+        
         for row in formatted_rows:
-            lines.append(" | ".join(
-                f"{_titleize(column)}: {value}"
-                for column, value in zip(columns, row)
-            ))
+            lines.append("| " + " | ".join(row) + " |")
 
         if truncated:
-            lines.append("")
-            lines.append("Showing a limited preview of the results.")
+            lines.append("\n*Showing a limited preview of the results.*")
 
         return (
-            "\n\n".join(lines),
+            "\n".join(lines),
             {
                 "kind": "rows",
-                "layout": "cards" if len(columns) > 5 else "grid",
-                "columns": [_titleize(column) for column in columns],
+                "layout": "grid",
+                "columns": headers,
                 "rows": formatted_rows,
                 "truncated": truncated,
             },
