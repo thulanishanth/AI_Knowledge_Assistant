@@ -9,26 +9,12 @@ from dataclasses import dataclass
 from app.core.settings import settings
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]")
-_FOLLOW_UP_TERMS = {
-    "it",
-    "that",
-    "those",
-    "them",
-    "same",
-    "previous",
-    "above",
-    "again",
-    "last",
-    "these",
-}
-
 
 @dataclass(frozen=True, slots=True)
 class SanitizedQuestion:
     raw: str
     normalized: str
-    is_follow_up: bool
-
+    # Removed 'is_follow_up' because the LLM IntentService handles it now!
 
 def sanitize_question(text: str, max_chars: int | None = None) -> SanitizedQuestion:
     """Normalize whitespace, strip fences, and bound user input."""
@@ -37,13 +23,12 @@ def sanitize_question(text: str, max_chars: int | None = None) -> SanitizedQuest
     cleaned = raw.replace("```sql", " ").replace("```", " ").replace("`", " ")
     cleaned = _CONTROL_CHARS.sub(" ", cleaned)
     cleaned = " ".join(cleaned.split()).strip()
+    
     if len(cleaned) > limit:
         cleaned = cleaned[:limit].rstrip()
 
-    tokens = {token.lower() for token in re.findall(r"[a-zA-Z_]+", cleaned)}
-    is_follow_up = bool(tokens.intersection(_FOLLOW_UP_TERMS)) or len(cleaned.split()) <= 4
-    return SanitizedQuestion(raw=raw, normalized=cleaned, is_follow_up=is_follow_up)
-
+    # The AI will handle follow-up detection later, so we just return the clean text
+    return SanitizedQuestion(raw=raw, normalized=cleaned)
 
 def normalize_role(role: str) -> str:
     """Normalize message role names for API and frontend consistency."""

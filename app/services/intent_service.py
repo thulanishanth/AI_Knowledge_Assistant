@@ -29,7 +29,8 @@ Format:
 {{
     "intent": "database_query | greeting | general_chitchat",
     "corrected_query": "The grammatically perfect version of their question (only if database_query)",
-    "direct_response": "A friendly reply (only if greeting or chitchat, otherwise empty)"
+    "direct_response": "A friendly reply (only if greeting or chitchat, otherwise empty)",
+    "is_follow_up": true/false
 }}
 """
         try:
@@ -50,5 +51,6 @@ Format:
             return {
                 "intent": "database_query",
                 "corrected_query": user_question,
-                "direct_response": ""
+                "direct_response": "",
+                "is_follow_up": False
             }
