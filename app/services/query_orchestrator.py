@@ -77,42 +77,43 @@ class QueryOrchestrator:
         with tracing.span("query.handle"), metrics.timer("query_total"):
             schema = await self._schema_service.get_schema()
             
-            # --- 1. Fast-path for Schema queries ---
-            lowered_q = sanitized.normalized.lower()
-            if any(word in lowered_q for word in ["schema", "columns", "fields", "table structure"]):
-                schema_answer = schema.to_prompt_block()
-                return QueryResponse(
-                    answer=schema_answer, confidence=1.0, session_id=session_ctx.session_id,
-                    presentation={"kind": "notice", "title": f"Schema for {schema.table_name}", "message": schema_answer},
-                    meta={"strategy": "schema_metadata"},
-                )
-
-            # --- 2. Fetch Memory Context Early ---
+            # --- 1. Fetch Memory Context Early ---
+            # We must do this first so the Intent LLM can read the history!
             session_context = ""
             try:
                 memory_context = await self._memory_manager.get_context_for_llm(
                     user_id=session_ctx.user_id,
                     session_id=session_ctx.session_id,
                     user_query=sanitized.normalized,
-                    include_vector=False,
+                    include_vector=True, # Changed to True if you want cross-session memory!
                 )
                 session_context = str(memory_context.get("aggregated_context", ""))
             except Exception:
                 logger.exception("Memory context load failed")
 
-            # --- 3. THE RECEPTIONIST: Analyze Intent & Fix Grammar ---
+            # --- 2. Let the LLM figure out exactly what the user wants! ---
             analysis = await asyncio.to_thread(
                 self._intent_service.analyze, 
-                sanitized.normalized, 
-                session_context
+                user_question=sanitized.normalized, 
+                memory_context=session_context
             )
             
             intent = analysis.get("intent", "database_query")
             
+            # --- 3. If the LLM realized they are asking about the structure/columns:
+            if intent == "schema_inquiry":
+                schema_answer = schema.to_prompt_block()
+                return QueryResponse(
+                    answer=schema_answer, confidence=1.0, session_id=session_ctx.session_id,
+                    presentation={"kind": "notice", "title": f"Schema for {schema.table_name}", "message": schema_answer},
+                    meta={"strategy": "llm_intent_schema"},
+                )
+
             # --- 4. Handle Chitchat / Greetings ---
             if intent in ["greeting", "general_chitchat"]:
                 chat_answer = analysis.get("direct_response", "Hello! I am your AI Database Assistant. How can I help you with your data today?")
                 
+                # Save greeting to memory so the bot remembers saying hello
                 try:
                     await self._memory_manager.update_memory_pipeline(
                         user_id=session_ctx.user_id, session_id=session_ctx.session_id,
@@ -127,13 +128,35 @@ class QueryOrchestrator:
                     meta={"strategy": "intent_chitchat"},
                 )
 
-            # --- 5. Handle Database Queries ---
+            # --- 5. Otherwise, it's a database_query, so proceed with SQL generation! ---
             final_query = analysis.get("corrected_query", sanitized.normalized)
+            difficulty_score = analysis.get("difficulty_score", 50) # Default to 50 if missing
             
+            is_cloud = False
+            
+            # --- MODEL CASCADING ROUTER ---
+            if difficulty_score <= 50:
+                target_model = "local-llm"
+                is_cloud = False  
+            elif difficulty_score <= 60:
+                target_model = "gpt-4o-mini" # Cheap, extremely fast cloud reasoning
+                is_cloud = True   
+            elif difficulty_score <= 85:
+                target_model = "gpt-4-turbo" # Heavy reasoning
+                is_cloud = True
+            else:
+                target_model = "gpt-4o"      # Flagship Enterprise model
+                is_cloud = True
+
+            # Log the routing decision so you can see it in the terminal!
+            logger.info(f"🔀 [MODEL ROUTER] Difficulty: {difficulty_score}/100 | Selected Model: {target_model}")
+
             sql_result = await self._sql_generation_service.generate_sql(
                 question=final_query,
                 schema=schema,
                 session_context=session_context,
+                model=target_model,
+                is_cloud=is_cloud
             )
 
             # --- LOG LINE: TERMINAL OUTPUT FOR SQL ---
@@ -146,6 +169,9 @@ class QueryOrchestrator:
                     safe_answer = "Security Alert: I am strictly prohibited from modifying or deleting data."
                 else:
                     safe_answer = f"I could not safely process that request: {error_details}"
+
+                if sql_result.notice:
+                    safe_answer = f"{sql_result.notice}\n\n{safe_answer}"
 
                 return QueryResponse(
                     answer=safe_answer, confidence=1.0, session_id=session_ctx.session_id,
@@ -193,6 +219,9 @@ class QueryOrchestrator:
                 explanation = "I ran the query, but I couldn't find any data matching your request."
             # ==========================================
 
+            if sql_result.notice:
+                explanation = f"{sql_result.notice}\n\n{explanation}"
+
             # Format the Markdown Table using your existing formatter
             table_text, presentation = self._response_formatter.format_database_result(
                 question=final_query,
@@ -201,7 +230,7 @@ class QueryOrchestrator:
             )
 
             # Glue the human explanation to the top of the markdown table!
-            final_answer = f"{explanation}\n\n{table_text}"
+            final_answer = explanation
 
             confidence = 0.95 if execution.row_count > 0 else 0.85
 

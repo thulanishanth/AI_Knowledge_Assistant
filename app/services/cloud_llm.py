@@ -2,6 +2,7 @@
 """Async cloud LLM client used by router-based model integrations."""
 
 from __future__ import annotations
+import os
 
 import httpx
 
@@ -10,22 +11,24 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-_MODEL = settings.hf_model or "Qwen/Qwen2.5-7B-Instruct"
-
 
 async def call_cloud_llm(
     prompt: str,
+    model_name: str,
     max_tokens: int = 200,
     temperature: float | None = None,
 ) -> str:
     """Call the Hugging Face chat-completions endpoint asynchronously."""
     if not prompt or not prompt.strip():
         raise ValueError("Prompt cannot be empty.")
-    if not settings.hf_api_key:
-        raise RuntimeError("HF_API_KEY is not configured.")
+    
+    # Dynamically fetch the key from the environment!
+    cloud_api_key = os.getenv("OPENAI_API_KEY_CLOUD")
+    if not cloud_api_key:
+        raise RuntimeError("CLOUD_API_KEY is not configured.")
 
     payload = {
-        "model": _MODEL,
+        "model": model_name,
         "messages": [{"role": "user", "content": prompt.strip()}],
         "max_tokens": max_tokens,
         "temperature": settings.llm_temperature_sql if temperature is None else temperature,
@@ -34,9 +37,9 @@ async def call_cloud_llm(
     try:
         async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
             response = await client.post(
-                f"https://api-inference.huggingface.co/models/{_MODEL}/v1/chat/completions",
+                "https://api.openai.com/v1/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {settings.hf_api_key}",
+                    "Authorization": f"Bearer {cloud_api_key}",
                     "Content-Type": "application/json",
                 },
                 json=payload,
