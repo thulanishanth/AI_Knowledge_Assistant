@@ -1,4 +1,4 @@
-| Section | Q# | Question | Answer | SQL Query |
+| Section | Q# | Question | ChatBot Answer | LLM SQL Query Generartion |
 |---|---|---|---|---|
 | Part 1: Complex Queries | 1 | How many canceled bookings arrived in the year 2018 that had a lead time strictly greater than 100 days and 0 special requests? | In the year 2018, there were 4,427 cancellations where guests had booked their stay more than 100 days in advance and did not make any special requests. | `SELECT COUNT(*) FROM hotel_reservations WHERE booking_status = 'Canceled' AND arrival_year = 2018 AND lead_time > 100 AND no_of_special_requests = 0;` |
 | Part 1: Complex Queries | 2 | What is the average price per room for "Offline" bookings in 2017 that had strictly greater than 0 previous cancellations? (Round to 2 decimal places) | For 'Offline' bookings in 2017 that had more than zero previous cancellations, the average price per room was $87.76. | `SELECT ROUND(AVG(avg_price_per_room), 2) AS avg_price_per_room FROM hotel_reservations WHERE arrival_year = 2017 AND market_segment_type = 'Offline' AND no_of_previous_cancellations > 0;` |
