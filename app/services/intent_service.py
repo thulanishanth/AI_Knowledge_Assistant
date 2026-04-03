@@ -25,7 +25,11 @@ Task:
    - "database_query": If the user is asking for actual data/rows (e.g., "how many bookings", "average price").
    - "greeting": For hello/goodbye.
    - "general_chitchat": For off-topic questions.
-2. If it is a database_query, rewrite their prompt into perfect, professional English. 
+2. CONTEXTUAL REWRITE (CRITICAL): If the intent is "database_query", you MUST rewrite the user's prompt into a perfect, STANDALONE English query. 
+   - If the user asks a follow-up (e.g., "What about the online segment?", "Sort that by price", or "Just the canceled ones"), you MUST combine it with the memory above to create a fully self-contained question.
+   - Example Memory: "How many offline bookings?" -> User Prompt: "What about online?" -> Corrected Query: "How many online bookings are there?"
+   - Resolve all pronouns like "it", "them", or "that".
+   
 3. If it is a greeting or chitchat, write a friendly, helpful direct response.
 4. Evaluate the user's prompt and assign a "difficulty_score" from 0 to 100 based on the cognitive load required to answer it.
    - 0 to 50: Simple factual retrieval, basic counting, or single-table queries.

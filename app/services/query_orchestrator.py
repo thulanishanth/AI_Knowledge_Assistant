@@ -86,6 +86,7 @@ class QueryOrchestrator:
                     session_id=session_ctx.session_id,
                     user_query=sanitized.normalized,
                     include_vector=True, # Changed to True if you want cross-session memory!
+                    rag_context=""
                 )
                 session_context = str(memory_context.get("aggregated_context", ""))
             except Exception:
