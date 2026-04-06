@@ -15,6 +15,7 @@ from app.memory.window_memory import WindowMemory
 from app.observability.metrics import metrics
 from app.observability.structured_logger import log_event
 from app.observability.tracing import tracing
+from app.observability.file_dumper import dump_conversation
 from app.services.rag_retriever import retrieve_dynamic_rag_context
 
 logger = get_logger(__name__)
@@ -159,16 +160,27 @@ class MemoryManager:
         session_id: str,
         question: str,
         answer: str,
+        full_prompt: str = "",
+        rag_context: str = "", 
+        generated_sql: str = "",
+        execution_status: str = "",
     ) -> None:
         """Update session memory after a completed interaction."""
         with tracing.span("memory.update_pipeline"), metrics.timer("memory_update"):
             importance = self.detect_memory_importance(question, answer)
 
+            # --- CRITICAL FIX: HIDDEN MEMORY STATE ---
+            # We save the SQL into the bot's memory so it can explain itself later!
+            memory_answer = answer
+            if generated_sql:
+                memory_answer = f"{answer}\n(System Note - I used this SQL to get the data: {generated_sql})"
+
             await self._window_memory.add_message(user_id, session_id, "user", question)
-            await self._window_memory.add_message(user_id, session_id, "assistant", answer)
+            await self._window_memory.add_message(user_id, session_id, "assistant", memory_answer) # <--- Save the hidden state
 
             background_tasks = [
-                self._summary_memory.update_summary(user_id, session_id, question, answer)
+                self._summary_memory.update_summary(user_id, session_id, question, answer),
+                dump_conversation(question, answer, full_prompt, rag_context, generated_sql, execution_status)
             ]
 
             if importance >= settings.memory_importance_threshold:
@@ -183,7 +195,7 @@ class MemoryManager:
                 )
 
             await asyncio.gather(*background_tasks, return_exceptions=True)
-
+            
             log_event(
                 "info",
                 "memory_pipeline_updated",
@@ -191,7 +203,7 @@ class MemoryManager:
                 session_id=session_id,
                 importance_score=round(importance, 3),
             )
-
+                    
     def detect_memory_importance(self, question: str, answer: str) -> float:
         """Estimate memory importance from lexical cues and response quality."""
         text = f"{question} {answer}".lower()

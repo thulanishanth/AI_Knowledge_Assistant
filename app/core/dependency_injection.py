@@ -55,7 +55,6 @@ class ServiceContainer:
         self.chat_history_repository = ChatHistoryRepository()
         self.schema_repository = SchemaRepository()
         self.schema_service = SchemaService(self.schema_repository)
-        self.intent_service = IntentService()
         self.sql_guard = SqlGuard()
         self.embedding_service = EmbeddingService()
         self.reranker_service = RerankerService()
@@ -70,6 +69,8 @@ class ServiceContainer:
         self.window_memory = WindowMemory()
         self.summary_memory = SummaryMemory()
         self.context_aggregator = ContextAggregator()
+        
+        # Initialize PromptBuilder BEFORE the services that need it
         self.prompt_builder = PromptBuilder()
 
         self.memory_manager = MemoryManager(
@@ -79,13 +80,19 @@ class ServiceContainer:
             context_aggregator=self.context_aggregator,
         )
 
+        # Inject PromptBuilder into IntentService
+        self.intent_service = IntentService(prompt_builder=self.prompt_builder)
+
+        # Inject PromptBuilder into SQLGenerationService
         self.sql_generation_service = SQLGenerationService(
             schema_service=self.schema_service,
             sql_guard=self.sql_guard,
+            prompt_builder=self.prompt_builder,
         )
         self.sql_execution_service = SQLExecutionService()
         self.response_formatter = ResponseFormatter()
 
+        # Inject PromptBuilder into QueryOrchestrator
         self.query_orchestrator = QueryOrchestrator(
             session_manager=self.session_manager,
             memory_manager=self.memory_manager,
@@ -94,6 +101,7 @@ class ServiceContainer:
             sql_generation_service=self.sql_generation_service,
             sql_execution_service=self.sql_execution_service,
             response_formatter=self.response_formatter,
+            prompt_builder=self.prompt_builder,
         )
 
     async def initialize(self) -> None:
