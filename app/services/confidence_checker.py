@@ -1,89 +1,125 @@
 #app/services/confidence_checker.py
 """
-Heuristic-based confidence scoring for LLM generation results.
-Includes lexical context-grounding to detect hallucinations.
+Heuristic confidence scoring for grounded answers.
+
+This module estimates whether the final assistant answer is well-grounded
+in the schema / retrieved context / execution result preview.
 """
 
+from __future__ import annotations
+
 import re
-from typing import Set
+from typing import Iterable
 
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-def _extract_keywords(text: str) -> Set[str]:
-    """Extract meaningful words (4+ characters) from a text string."""
+_WORD_RE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9_]{2,}\b")
+_SQL_RE = re.compile(
+    r"\b(select|from|where|group|order|limit|count|sum|avg|min|max)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_keywords(text: str) -> set[str]:
     if not text:
         return set()
-    # \b matches word boundaries, ensuring we only grab whole words
-    words = re.findall(r'\b[a-zA-Z]{4,}\b', text.lower())
-    return set(words)
+
+    words = {match.group(0).lower() for match in _WORD_RE.finditer(text)}
+    stopwords = {
+        "the", "and", "for", "with", "that", "this", "from", "into", "your",
+        "have", "has", "had", "were", "was", "been", "are", "about", "using",
+        "used", "will", "would", "could", "should", "there", "their", "them",
+        "they", "than", "then", "what", "when", "which", "while", "where",
+        "who", "how", "why", "does", "did", "done", "not", "found", "result",
+        "results", "matching", "query", "table", "database", "data", "rows",
+        "row", "value", "values", "record", "records",
+    }
+    return {word for word in words if word not in stopwords}
+
+
+def _contains_uncertainty(answer_lower: str) -> bool:
+    uncertainty_phrases = [
+        "i don't know",
+        "i am not sure",
+        "i'm not sure",
+        "cannot determine",
+        "can't determine",
+        "not enough information",
+        "insufficient context",
+        "unable to provide",
+        "not present in the context",
+        "could not find",
+        "no information",
+    ]
+    return any(phrase in answer_lower for phrase in uncertainty_phrases)
+
+
+def _safe_ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return numerator / denominator
+
+
+def _keyword_overlap(answer: str, context: str) -> float:
+    answer_keywords = _extract_keywords(answer)
+    context_keywords = _extract_keywords(context)
+
+    if not answer_keywords:
+        return 0.0
+
+    overlap = len(answer_keywords.intersection(context_keywords))
+    return _safe_ratio(overlap, len(answer_keywords))
+
+
+def _has_structured_signal(texts: Iterable[str]) -> bool:
+    merged = " ".join(texts).lower()
+    return bool(_SQL_RE.search(merged))
+
 
 def check_confidence(answer: str, context: str) -> float:
     """
-    Check the confidence of an answer by evaluating uncertainty phrases
-    and measuring lexical overlap with the provided RAG context.
+    Return a confidence score from 0.0 to 1.0.
 
-    Args:
-        answer (str): The generated answer from the LLM.
-        context (str): The aggregated memory/RAG context used to prompt the LLM.
-
-    Returns:
-        float: Confidence score between 0.0 and 1.0
+    High score:
+    - answer is non-empty
+    - no explicit uncertainty
+    - answer vocabulary overlaps with grounding context
+    - structured SQL/data terminology appears when appropriate
     """
-    if not answer:
-        return 0.0
-        
-    answer_lower = answer.lower()
-    
-    # 1. Immediate failure states
-    if answer_lower.startswith("error") or "system error" in answer_lower:
+    if not answer or not answer.strip():
         return 0.0
 
-    # 2. Detect explicit uncertainty (LLM admits it doesn't know)
-    uncertainty_phrases = [
-        "i don't know", "i am not sure", "cannot find", 
-        "not mentioned", "no information", "i apologize",
-        "not present in the context", "unable to provide"
-    ]
-    if any(phrase in answer_lower for phrase in uncertainty_phrases):
-        logger.debug("Confidence lowered: Uncertainty phrase detected.")
+    answer = answer.strip()
+    context = (context or "").strip()
+    answer_lower = answer.lower()
+
+    if answer_lower.startswith("error") or "internal server error" in answer_lower:
+        return 0.0
+
+    if _contains_uncertainty(answer_lower):
+        logger.debug("Confidence lowered due to uncertainty phrase.")
         return 0.15
 
-    # 3. Base confidence for a generated response
-    base_confidence = 0.8
+    score = 0.60
 
-    # 4. Context Grounding (Hallucination check)
-    # If the LLM is giving a factual answer, its vocabulary should overlap 
-    # with the vector memory and schema context we provided it.
-    if context and context.strip():
-        ans_keywords = _extract_keywords(answer)
-        ctx_keywords = _extract_keywords(context)
-        
-        if ans_keywords:
-            # Calculate what percentage of the answer's words actually came from the context
-            overlap = len(ans_keywords.intersection(ctx_keywords))
-            overlap_ratio = overlap / len(ans_keywords)
-            
-            if overlap_ratio > 0.35:
-                # Highly grounded in context
-                base_confidence += 0.25
-            elif overlap_ratio > 0.15:
-                # Moderately grounded
-                base_confidence += 0.15
-            elif overlap_ratio < 0.05:
-                # Potential hallucination: uses almost no words from the context
-                logger.warning("Potential hallucination detected: Low context overlap.")
-                base_confidence -= 0.30
-        else:
-            # Very short answers (e.g., "Yes.", "None.") get a slight bump
-            base_confidence += 0.10
+    overlap_ratio = _keyword_overlap(answer, context)
+    if overlap_ratio >= 0.45:
+        score += 0.28
+    elif overlap_ratio >= 0.25:
+        score += 0.18
+    elif overlap_ratio >= 0.10:
+        score += 0.08
+    else:
+        logger.warning("Low grounding overlap detected for generated answer.")
+        score -= 0.18
 
-    # 5. SQL Keyword Detection (Safe Regex)
-    sql_keywords = [r"\bselect\b", r"\bfrom\b", r"\bwhere\b", r"\bjoin\b"]
-    if any(re.search(kw, answer_lower) for kw in sql_keywords):
-        base_confidence += 0.30
+    if _has_structured_signal([answer, context]):
+        score += 0.08
 
-    # Cap the final score between 0.0 and 1.0
-    final_score = max(0.0, min(1.0, base_confidence))
+    if len(answer.split()) <= 5:
+        score -= 0.05
+
+    final_score = max(0.0, min(1.0, score))
     return round(final_score, 2)

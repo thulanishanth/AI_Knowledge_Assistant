@@ -8,8 +8,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.core.settings import settings
 from app.core.logging import get_logger
+from app.core.settings import settings
 
 logger = get_logger(__name__)
 
@@ -17,7 +17,7 @@ sqlglot: Any | None = None
 exp: Any | None = None
 ParseError: type[BaseException] = Exception
 
-try:  # pragma: no cover - optional dependency
+try:  # pragma: no cover
     sqlglot = import_module("sqlglot")
     exp = getattr(sqlglot, "exp", None)
     sqlglot_errors = import_module("sqlglot.errors")
@@ -53,6 +53,7 @@ _FORBIDDEN_KEYWORDS = {
     "benchmark",
     "sleep",
 }
+
 _COMMENT_PATTERN = re.compile(r"(--|/\*|\*/|#)")
 _TABLE_PATTERN = re.compile(
     r"\b(?:from|join)\s+[`\"]?([a-zA-Z_][a-zA-Z0-9_]*)[`\"]?",
@@ -81,10 +82,15 @@ class SqlGuard:
         sql = self._normalize(sql)
         keyword_errors = self._validate_keywords(sql)
         if keyword_errors:
-            return SqlValidationResult(is_valid=False, normalized_sql=sql, errors=keyword_errors)
+            return SqlValidationResult(
+                is_valid=False,
+                normalized_sql=sql,
+                errors=keyword_errors,
+            )
 
         if sqlglot is not None:
             return self._validate_with_sqlglot(sql)
+
         return self._validate_with_regex(sql)
 
     @staticmethod
@@ -97,26 +103,34 @@ class SqlGuard:
     def _validate_keywords(self, sql_query: str) -> list[str]:
         lowered = sql_query.lower()
         errors: list[str] = []
+
         if _COMMENT_PATTERN.search(lowered):
             errors.append("SQL comments are not allowed.")
+
         if lowered.count(";") > 1:
             errors.append("Multiple SQL statements are not allowed.")
+
         for keyword in _FORBIDDEN_KEYWORDS:
             if re.search(rf"\b{re.escape(keyword)}\b", lowered):
                 errors.append(f"Forbidden SQL keyword detected: {keyword}.")
+
         if not re.match(r"^(select|with)\b", lowered):
             errors.append("Only SELECT queries are allowed.")
+
         return errors
 
     def _validate_with_sqlglot(self, sql_query: str) -> SqlValidationResult:
         try:
-            statements = [stmt for stmt in sqlglot.parse(sql_query, read="mysql") if stmt is not None]
+            statements = [
+                stmt for stmt in sqlglot.parse(sql_query, read="mysql") if stmt is not None
+            ]
         except ParseError as exc:
             return SqlValidationResult(
                 is_valid=False,
                 normalized_sql=sql_query,
                 errors=[f"Failed to parse SQL: {exc}"],
             )
+
         if len(statements) != 1:
             return SqlValidationResult(
                 is_valid=False,
@@ -128,7 +142,14 @@ class SqlGuard:
         if exp is None:
             return self._validate_with_regex(sql_query)
 
-        forbidden_nodes = (exp.Insert, exp.Update, exp.Delete, exp.Drop, exp.Alter, exp.Create)
+        forbidden_nodes = (
+            exp.Insert,
+            exp.Update,
+            exp.Delete,
+            exp.Drop,
+            exp.Alter,
+            exp.Create,
+        )
         for forbidden_node in forbidden_nodes:
             if list(statement.find_all(forbidden_node)):
                 return SqlValidationResult(
@@ -142,12 +163,14 @@ class SqlGuard:
             for table in statement.find_all(exp.Table)
             if getattr(table, "name", None)
         }
+
         if not tables:
             return SqlValidationResult(
                 is_valid=False,
                 normalized_sql=sql_query,
                 errors=["No table reference detected."],
             )
+
         if tables != {self._allowed_table}:
             return SqlValidationResult(
                 is_valid=False,
@@ -161,12 +184,14 @@ class SqlGuard:
 
     def _validate_with_regex(self, sql_query: str) -> SqlValidationResult:
         tables = {match.group(1).lower() for match in _TABLE_PATTERN.finditer(sql_query)}
+
         if not tables:
             return SqlValidationResult(
                 is_valid=False,
                 normalized_sql=sql_query,
                 errors=["No table reference detected."],
             )
+
         if tables != {self._allowed_table}:
             return SqlValidationResult(
                 is_valid=False,
@@ -175,6 +200,7 @@ class SqlGuard:
                     f"Query can reference only `{self._allowed_table}`. Found: {', '.join(sorted(tables))}.",
                 ],
             )
+
         return SqlValidationResult(is_valid=True, normalized_sql=sql_query)
 
 

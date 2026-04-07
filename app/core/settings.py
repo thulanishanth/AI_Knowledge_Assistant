@@ -54,6 +54,7 @@ def _get_list(name: str, default: str) -> list[str]:
 class Settings:
     """Immutable application configuration."""
 
+    # Database
     db_host: str = _get_str("DB_HOST", "localhost")
     db_port: int = _get_int("DB_PORT", 3306)
     db_user: str = _get_str("DB_USER", "root")
@@ -62,10 +63,16 @@ class Settings:
     db_table: str = _get_str("DB_TABLE", "hotel_reservations")
     db_pool_size: int = _get_int("DB_POOL_SIZE", 10)
     db_query_timeout_ms: int = _get_int("DB_QUERY_TIMEOUT_MS", 5000)
+
+    # Query / UI limits
     max_query_results: int = _get_int("MAX_QUERY_RESULTS", 10)
     max_preview_rows: int = _get_int("MAX_PREVIEW_ROWS", 10)
     max_question_chars: int = _get_int("MAX_QUESTION_CHARS", 800)
 
+    # Domain hints
+    domain_terms: tuple[str, ...] = ()
+
+    # Default LLM / embeddings
     hf_api_key: str = _get_str("HF_API_KEY")
     hf_model: str = _get_str("HF_MODEL", "katanemo/Arch-Router-1.5B")
     cloud_api_key: str = _get_str("CLOUD_API_KEY")
@@ -73,12 +80,16 @@ class Settings:
     llm_max_retries: int = _get_int("LLM_MAX_RETRIES", 2)
     llm_temperature_sql: float = _get_float("LLM_TEMPERATURE_SQL", 0.0)
 
+    # Logging
     log_level: str = _get_str("LOG_LEVEL", "INFO").upper()
     log_file: str = _get_str("LOG_FILE")
     structured_log_json: bool = _get_bool("STRUCTURED_LOG_JSON", False)
 
+    # Frontend / CORS
     cors_allowed_origins: tuple[str, ...] = ()
+    frontend_dir: str = _get_str("FRONTEND_DIR", str(BASE_DIR / "frontend"))
 
+    # Vector / memory
     chroma_server_host: str = _get_str("CHROMA_SERVER_HOST", "localhost")
     chroma_server_port: int = _get_int("CHROMA_SERVER_PORT", 8000)
     chroma_use_ssl: bool = _get_bool("CHROMA_USE_SSL", False)
@@ -92,7 +103,7 @@ class Settings:
         "knowledge_memory_collection",
     )
     window_memory_size: int = _get_int("WINDOW_MEMORY_SIZE", 10)
-    top_k_retrieval: int = _get_int("TOP_K_RETRIEVAL", 8)
+    top_k_retrieval: int = _get_int("TOP_K_RETRIEVAL", 20)
     rerank_top_k: int = _get_int("RERANK_TOP_K", 5)
     embedding_model: str = _get_str(
         "EMBEDDING_MODEL",
@@ -106,6 +117,7 @@ class Settings:
     )
     enable_reranking: bool = _get_bool("ENABLE_RERANKING", True)
 
+    # Observability
     enable_metrics: bool = _get_bool("ENABLE_METRICS", True)
     enable_tracing: bool = _get_bool("ENABLE_TRACING", False)
     otel_service_name: str = _get_str(
@@ -113,11 +125,12 @@ class Settings:
         "ai-knowledge-assistant",
     )
 
+    # Cache / session
     schema_cache_ttl_seconds: int = _get_int("SCHEMA_CACHE_TTL_SECONDS", 300)
     query_cache_ttl_seconds: int = _get_int("QUERY_CACHE_TTL_SECONDS", 45)
     session_history_limit: int = _get_int("SESSION_HISTORY_LIMIT", 15)
 
-    frontend_dir: str = _get_str("FRONTEND_DIR", str(BASE_DIR / "frontend"))
+    # Environment
     environment: str = _get_str("APP_ENV", "development").lower()
 
     def __post_init__(self) -> None:
@@ -130,6 +143,11 @@ class Settings:
                     "http://localhost:8000,http://127.0.0.1:8000",
                 )
             ),
+        )
+        object.__setattr__(
+            self,
+            "domain_terms",
+            tuple(_get_list("DOMAIN_TERMS", "booking,hotel,room,guest,meal,price")),
         )
 
     @property

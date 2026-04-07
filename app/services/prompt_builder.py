@@ -1,106 +1,200 @@
 # app/services/prompt_builder.py
 from __future__ import annotations
-from typing import Any
+
+from app.core.settings import settings
 from app.infrastructure.repositories.schema_repository import TableSchema
 
+
 class PromptBuilder:
-    """Centralized builder for all LLM prompts used in the application."""
+    """Centralized builder for all LLM prompts."""
 
-    def build_intent_prompt(self, user_question: str, memory_context: str) -> str:
-        return f"""You are the intelligent routing brain of a Hotel Database Assistant.
-Your job is to read the user's prompt, figure out what they want, fix their grammar, and return a STRICT JSON response.
+    @staticmethod
+    def _trim(text: str | None, limit: int = 4000) -> str:
+        value = (text or "").strip()
+        if len(value) <= limit:
+            return value
+        return value[:limit].rstrip()
 
-Here is the recent conversation memory:
-{memory_context}
+    def build_intent_prompt(self, user_question: str, memory_context: str = "") -> str:
+        recent_context = self._trim(memory_context, 2500) or "(none)"
 
-User's New Prompt: "{user_question}"
+        return f"""
+You are the routing and rewrite engine for a business data assistant.
 
-Task:
-1. Categorize the intent into one of FOUR categories: 
-   - "schema_inquiry": If the user asks about the structure of the table.
-   - "database_query": If the user is asking for actual data/rows.
-   - "greeting": For hello/goodbye.
-   - "general_chitchat": For off-topic questions.
-2. CONTEXTUAL REWRITE (CRITICAL): If the intent is "database_query", you MUST rewrite the user's prompt into a perfect, STANDALONE English query. 
-   - If the user asks a follow-up, you MUST combine it with the memory above to create a fully self-contained question.
-3. If it is a greeting or chitchat, write a friendly, helpful direct response.
-4. Evaluate the user's prompt and assign a "difficulty_score" from 0 to 100 based on the cognitive load required to answer it.
+Return ONLY valid JSON.
+Do not add markdown.
+Do not add explanations.
 
-You MUST return ONLY a valid JSON object. No markdown formatting, no extra text.
-Format:
+Allowed intents:
+- "schema_inquiry": user asks about columns, schema, fields, structure
+- "database_query": user asks for data, counts, aggregations, rows, trends
+- "refine_last_query": user modifies the previous result/query
+- "explain_last_answer": user asks how the last answer was derived
+- "ask_for_sql": user asks to see the SQL/query used
+- "ask_for_source": user asks which table/columns/source were used
+- "greeting": hello/thanks/bye
+- "general_chitchat": non-data chat
+
+Rules:
+1. If the user is asking for data, return a grammatically clean standalone question in "corrected_query".
+2. If the user is following up on a previous question, use the recent context to rewrite a full standalone question.
+3. Do not invent business metrics that were never mentioned.
+4. Keep "direct_response" empty unless intent is greeting or general_chitchat.
+5. "difficulty_score" must be 0 to 100.
+
+Recent conversation context:
+{recent_context}
+
+User question:
+{user_question}
+
+Return exactly this JSON shape:
 {{
-    "intent": "database_query | schema_inquiry | greeting | general_chitchat",
-    "corrected_query": "The grammatically perfect version of their question (only if database_query)",
-    "direct_response": "A friendly reply (only if greeting or chitchat, otherwise empty)",
-    "difficulty_score": 45,
-    "is_follow_up": true/false
+  "intent": "database_query",
+  "corrected_query": "clean standalone question",
+  "direct_response": "",
+  "difficulty_score": 45,
+  "is_follow_up": false
 }}
-"""
+""".strip()
 
-    def build_sql_prompt(self, question: str, schema: TableSchema, session_context: str) -> str:
-        # We combine the live schema and the retrieved ChromaDB rules into the context block
-        database_context = f"Strict Database Schema:\n{schema.to_prompt_block()}\n\nRetrieved Business Rules & Examples:\n{session_context or '(None retrieved)'}"
+    def build_sql_prompt(
+        self,
+        question: str,
+        schema: TableSchema,
+        session_context: str = "",
+        examples_context: str = "",
+    ) -> str:
+        business_rules = self._trim(session_context, 3500) or "(none)"
+        examples = self._trim(examples_context, 2500) or "(none)"
+        schema_block = schema.to_prompt_block()
 
-        return f"""You are an expert SQL generator with strong reasoning ability.
-Your goal is to convert a natural language question into an accurate SQL query.
+        return f"""
+You are a deterministic MySQL SQL generator.
 
-=====================
-USER QUESTION:
+Your job:
+Convert the user's business question into ONE correct SQL query.
+
+Target table:
+{schema.table_name}
+
+Hard rules:
+- Use ONLY this table: {schema.table_name}
+- Use ONLY columns that appear in the schema below
+- Output ONLY SQL
+- No markdown
+- No explanation
+- No comments
+- Only one statement
+- Only SELECT or WITH ... SELECT
+- Do not invent columns, tables, joins, or metrics
+- If the question cannot be answered from the provided schema and business rules, return exactly:
+INSUFFICIENT_CONTEXT
+- Unless the user explicitly asks for more rows, keep the result bounded with LIMIT {settings.max_query_results}
+- Prefer simple, correct SQL over clever SQL
+- When filtering text categories, use exact values only if supported by provided business context
+- If a metric formula is not explicitly defined in the business rules, do not invent it
+
+Schema:
+{schema_block}
+
+Business rules and retrieved knowledge:
+{business_rules}
+
+Relevant examples:
+{examples}
+
+User question:
 {question}
-=====================
 
-DATABASE CONTEXT (STRICTLY FOLLOW):
-{database_context}
-=====================
+Output:
+SQL only
+""".strip()
 
-THINKING STEPS (internal, do not output):
-- Identify relevant tables
-- Identify required columns
-- Understand business meaning from definitions
-- Apply filters (date, status, conditions)
-- Decide aggregation (SUM, COUNT, etc.)
-- Construct correct joins
+    def build_sql_repair_prompt(
+        self,
+        question: str,
+        schema: TableSchema,
+        session_context: str,
+        invalid_sql: str,
+        errors: list[str],
+        examples_context: str = "",
+    ) -> str:
+        business_rules = self._trim(session_context, 3500) or "(none)"
+        examples = self._trim(examples_context, 2500) or "(none)"
+        error_block = "\n".join(f"- {item}" for item in errors) if errors else "- Invalid SQL"
 
-=====================
-RULES:
-- Use ONLY provided schema
-- Do NOT hallucinate columns/tables
-- Use proper SQL syntax
-- Prefer simple and correct queries over complex ones
-- Handle NULLs if needed
-- If unsure, return exactly: SELECT 'ERROR: Insufficient context' AS message;
+        return f"""
+You are repairing a failed SQL query.
 
-=====================
-OUTPUT FORMAT:
-SQL QUERY ONLY. NO explanation. Wrap the SQL in a ```sql block."""
+Return ONLY corrected SQL.
+No markdown.
+No explanation.
+No comments.
 
-    def build_sql_repair_prompt(self, question: str, schema: TableSchema, session_context: str, invalid_sql: str, errors: list[str]) -> str:
-        database_context = f"Strict Database Schema:\n{schema.to_prompt_block()}\n\nRetrieved Business Rules & Examples:\n{session_context or '(None retrieved)'}"
-        
-        return f"""You are an expert SQL generator. Your previous query failed validation.
-Repair the invalid SQL and return one valid MySQL SELECT query only.
+Target table:
+{schema.table_name}
 
-=====================
-USER QUESTION:
+Question:
 {question}
-=====================
-DATABASE CONTEXT:
-{database_context}
-=====================
-INVALID SQL:
-{invalid_sql}
-=====================
-VALIDATION ERRORS:
-{'; '.join(errors)}
-=====================
 
-Fix the errors and output ONLY the corrected SQL wrapped in a ```sql block."""
+Schema:
+{schema.to_prompt_block()}
 
-    def build_synthesis_prompt(self, question: str, data_preview: str) -> str:
-        return (
-            f"You are a helpful, professional Data Assistant.\n"
-            f"The user asked: '{question}'\n"
-            f"The database returned this raw data: {data_preview}\n\n"
-            f"Write a friendly 1 to 2 sentence human explanation of this data answering the user's question. "
-            f"Do NOT write markdown tables. Do NOT mention JSON or raw SQL. Just speak naturally."
-        )
+Business rules:
+{business_rules}
+
+Relevant examples:
+{examples}
+
+Previous invalid SQL:
+{invalid_sql or "(empty)"}
+
+Validation / execution issues:
+{error_block}
+
+Repair rules:
+- Keep only one statement
+- Use only SELECT or WITH ... SELECT
+- Use only table {schema.table_name}
+- Use only columns from the schema
+- If the question still cannot be answered safely, return exactly:
+INSUFFICIENT_CONTEXT
+
+Output:
+SQL only
+""".strip()
+
+    def build_synthesis_prompt(
+        self,
+        question: str,
+        data_preview: str,
+        row_count: int,
+        executed_sql: str,
+    ) -> str:
+        preview = self._trim(data_preview, 3500)
+
+        return f"""
+You are a grounded data explainer.
+
+Write a short business answer using ONLY the result preview below.
+Do not invent facts.
+Do not mention data not visible in the result.
+Do not mention assumptions as facts.
+If the preview is empty, say that no matching rows were found.
+Do not mention that you are an AI.
+
+User question:
+{question}
+
+Executed SQL:
+{executed_sql}
+
+Returned row count:
+{row_count}
+
+Result preview:
+{preview}
+
+Write 2 to 5 concise sentences.
+""".strip()

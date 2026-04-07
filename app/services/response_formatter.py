@@ -6,17 +6,29 @@ from typing import Any
 from app.core.settings import settings
 from app.services.result_analyzer import ResultAnalyzer
 
+
 def _titleize(value: str) -> str:
     return str(value or "").replace("_", " ").strip().title()
+
 
 def _stringify(value: Any) -> str:
     if value is None:
         return ""
+
+    if isinstance(value, bool):
+        return "True" if value else "False"
+
     if isinstance(value, float):
         if value.is_integer():
             return str(int(value))
         return f"{value:.2f}".rstrip("0").rstrip(".")
+
     return str(value)
+
+
+def _escape_md_cell(value: str) -> str:
+    return str(value).replace("|", "\\|").replace("\n", " ").strip()
+
 
 class ResponseFormatter:
     """Format output dynamically from result shape."""
@@ -33,21 +45,21 @@ class ResponseFormatter:
         shape = self._analyzer.analyze(rows)
 
         if shape.kind == "empty":
+            message = "No matching rows were found in the database."
             return (
-                "No matching rows were found in the database.",
+                message,
                 {
                     "kind": "notice",
                     "title": "No results",
-                    "message": "No matching rows were found in the database.",
+                    "message": message,
                 },
             )
 
         if shape.kind == "scalar":
             label = _titleize(shape.scalar_label or "Result")
             value = _stringify(shape.scalar_value)
-            
-            # Catch LLM conversational fallbacks
-            if str(shape.scalar_label).strip().lower() == "message":
+
+            if str(shape.scalar_label or "").strip().lower() == "message":
                 return (
                     value,
                     {
@@ -77,22 +89,19 @@ class ResponseFormatter:
             )
             return text, {"kind": "record", "fields": fields}
 
-        # --- UPDATED: PROPER MARKDOWN TABLE GENERATION ---
         preview = rows[: settings.max_preview_rows]
         columns = list(preview[0].keys())
-        
+
+        headers = [_titleize(column) for column in columns]
         formatted_rows = [
-            [_stringify(row.get(column)) for column in columns]
+            [_escape_md_cell(_stringify(row.get(column))) for column in columns]
             for row in preview
         ]
 
-        # Build Markdown Table String
         lines = ["Here are the matching results:\n"]
-        
-        headers = [_titleize(column) for column in columns]
         lines.append("| " + " | ".join(headers) + " |")
-        lines.append("|" + "|".join(["---"] * len(columns)) + "|")
-        
+        lines.append("|" + "|".join(["---"] * len(headers)) + "|")
+
         for row in formatted_rows:
             lines.append("| " + " | ".join(row) + " |")
 
@@ -107,5 +116,6 @@ class ResponseFormatter:
                 "columns": headers,
                 "rows": formatted_rows,
                 "truncated": truncated,
+                "question": question,
             },
         )

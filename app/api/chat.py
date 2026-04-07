@@ -1,5 +1,4 @@
 #app/api/chat.py
-
 """Chat API routes backed by the database-grounded query orchestrator."""
 
 from __future__ import annotations
@@ -63,7 +62,7 @@ def _fetch_session_history_sync(
 @router.post("/", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest) -> ChatResponse:
     """Handle one user question against the configured database table."""
-    user_id = request.user_id or "anonymous"
+    user_id = (request.user_id or "").strip() or "anonymous"
 
     try:
         result = await container.query_orchestrator.handle_query(

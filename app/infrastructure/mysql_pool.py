@@ -10,8 +10,8 @@ from mysql.connector import Error, pooling
 from mysql.connector.connection import MySQLConnection
 from mysql.connector.pooling import PooledMySQLConnection
 
-from app.core.settings import settings
 from app.core.logging import get_logger
+from app.core.settings import settings
 
 logger = get_logger(__name__)
 
@@ -50,13 +50,15 @@ def create_db_connection() -> Connection | None:
 
 
 def get_connection() -> Connection | None:
+    """Backward-compatible alias."""
     return create_db_connection()
 
 
 def close_connection(connection: Connection | None) -> None:
+    """Return pooled connection cleanly."""
     if connection is None:
         return
     try:
         connection.close()
-    except Exception as exc:  # pylint: disable=broad-exception-caught
+    except Exception as exc:  # pragma: no cover
         logger.debug("Failed to close MySQL connection cleanly: %s", exc)

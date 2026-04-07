@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+
 @dataclass(slots=True)
 class ResultShape:
     kind: str
@@ -11,6 +12,7 @@ class ResultShape:
     columns: list[str]
     scalar_value: Any = None
     scalar_label: str | None = None
+
 
 class ResultAnalyzer:
     """Infer result shape generically from returned rows."""
@@ -33,6 +35,14 @@ class ResultAnalyzer:
             )
 
         if len(rows) == 1:
-            return ResultShape(kind="single_record", row_count=1, columns=columns)
+            return ResultShape(
+                kind="single_record",
+                row_count=1,
+                columns=columns,
+            )
 
-        return ResultShape(kind="rows", row_count=len(rows), columns=columns)
+        return ResultShape(
+            kind="rows",
+            row_count=len(rows),
+            columns=columns,
+        )

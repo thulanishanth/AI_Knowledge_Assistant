@@ -7,13 +7,25 @@ from dataclasses import dataclass, field
 
 from mysql.connector import Error
 
+from app.core.logging import get_logger
 from app.core.settings import settings
 from app.infrastructure.mysql_pool import close_connection, create_db_connection
-from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 _TEXT_TYPES = {"char", "varchar", "text", "tinytext", "mediumtext", "longtext", "enum"}
+_NUMERIC_TYPES = {
+    "int",
+    "integer",
+    "bigint",
+    "smallint",
+    "tinyint",
+    "mediumint",
+    "decimal",
+    "float",
+    "double",
+    "numeric",
+}
 
 
 def _row_value(
@@ -29,8 +41,10 @@ def _row_value(
             if key.lower() in normalized:
                 return normalized[key.lower()]
         return default
+
     if isinstance(row, (tuple, list)) and index is not None and index < len(row):
         return row[index]
+
     return default
 
 
@@ -44,17 +58,7 @@ class ColumnProfile:
 
     @property
     def is_numeric(self) -> bool:
-        return self.data_type in {
-            "int",
-            "integer",
-            "bigint",
-            "smallint",
-            "tinyint",
-            "mediumint",
-            "decimal",
-            "float",
-            "double",
-        }
+        return self.data_type in _NUMERIC_TYPES
 
     @property
     def is_text(self) -> bool:
@@ -106,6 +110,7 @@ class SchemaRepository:
     def get_active_schema(self) -> TableSchema:
         connection = None
         cursor = None
+
         try:
             connection = create_db_connection()
             if connection is None:
@@ -131,6 +136,7 @@ class SchemaRepository:
                 (settings.db_name, settings.db_table),
             )
             rows = cursor.fetchall()
+
             if not rows:
                 raise RuntimeError("Configured table was not found in MySQL metadata.")
 
@@ -151,16 +157,19 @@ class SchemaRepository:
                     logger.warning("Skipping unexpected schema metadata row: %r", row)
                     continue
 
+                normalized_name = str(name).strip()
+                normalized_type = str(data_type).strip().lower()
+
                 columns.append(
                     ColumnProfile(
-                        name=str(name),
-                        data_type=str(data_type).lower(),
+                        name=normalized_name,
+                        data_type=normalized_type,
                         nullable=str(is_nullable).upper() == "YES",
                         is_primary_key=bool(is_primary_key),
                         sample_values=self._load_sample_values(
-                            cursor,
-                            str(name),
-                            str(data_type).lower(),
+                            connection=connection,
+                            column_name=normalized_name,
+                            data_type=normalized_type,
                         ),
                     )
                 )
@@ -173,12 +182,13 @@ class SchemaRepository:
                 table_name=settings.db_table,
                 columns=tuple(columns),
             )
+
         except Error as exc:
             logger.exception("Failed to load live schema: %s", exc)
             raise RuntimeError("Failed to load schema metadata from MySQL.") from exc
         except RuntimeError:
             raise
-        except Exception as exc:  # pylint: disable=broad-exception-caught
+        except Exception as exc:  # pragma: no cover
             logger.exception("Unexpected schema metadata error: %s", exc)
             raise RuntimeError("Unexpected schema metadata error.") from exc
         finally:
@@ -190,28 +200,47 @@ class SchemaRepository:
             close_connection(connection)
 
     @staticmethod
-    def _load_sample_values(cursor, column_name: str, data_type: str) -> tuple[str, ...]:
+    def _load_sample_values(
+        connection,
+        column_name: str,
+        data_type: str,
+        limit: int = 8,
+    ) -> tuple[str, ...]:
+        """Load a few representative text samples for prompt grounding."""
         if data_type not in _TEXT_TYPES:
             return ()
+
+        cursor = None
         try:
+            cursor = connection.cursor(dictionary=True)
             cursor.execute(
                 f"""
                 SELECT DISTINCT `{column_name}` AS value
                 FROM `{settings.db_table}`
-                WHERE `{column_name}` IS NOT NULL AND TRIM(`{column_name}`) <> ''
+                WHERE `{column_name}` IS NOT NULL
+                  AND TRIM(CAST(`{column_name}` AS CHAR)) <> ''
                 ORDER BY `{column_name}`
-                LIMIT 8
-                """,
+                LIMIT {int(limit)}
+                """
             )
             rows = cursor.fetchall()
         except Error:
             logger.debug("Could not load sample values for %s", column_name, exc_info=True)
             return ()
+        finally:
+            if cursor is not None:
+                try:
+                    cursor.close()
+                except Exception:  # pragma: no cover
+                    logger.debug("Cursor close failed while loading sample values", exc_info=True)
 
-        samples = []
+        samples: list[str] = []
         for row in rows:
             value = _row_value(row, "value", "VALUE", index=0)
             if value is None:
                 continue
-            samples.append(str(value).strip())
+            text = str(value).strip()
+            if text:
+                samples.append(text)
+
         return tuple(samples)

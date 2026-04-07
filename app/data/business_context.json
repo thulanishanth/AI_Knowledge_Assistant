@@ -1,39 +1,54 @@
 {
-    "dataset_name": "hotel_reservations",
-    "auto_extracted_schema": [
-        "- Booking_ID (varchar)",
-        "- no_of_adults (int)",
-        "- no_of_children (int)",
-        "- no_of_weekend_nights (int)",
-        "- no_of_week_nights (int)",
-        "- type_of_meal_plan (varchar)",
-        "- required_car_parking_space (int)",
-        "- room_type_reserved (varchar)",
-        "- lead_time (int)",
-        "- arrival_year (int)",
-        "- arrival_month (int)",
-        "- arrival_date (int)",
-        "- market_segment_type (varchar)",
-        "- repeated_guest (int)",
-        "- no_of_previous_cancellations (int)",
-        "- no_of_previous_bookings_not_canceled (int)",
-        "- avg_price_per_room (decimal)",
-        "- no_of_special_requests (int)",
-        "- booking_status (varchar)"
-    ],
-    "semantic_layer": [
-        "Column Format 'Booking_ID': Example values look like 'INN00001', 'INN00002'.",
-        "Column Meaning 'type_of_meal_plan': Categorizes data into specific values: 'Meal Plan 1', 'Not Selected', 'Meal Plan 2', 'Meal Plan 3'.",
-        "Column Meaning 'room_type_reserved': Categorizes data into specific values: 'Room_Type 1', 'Room_Type 4', 'Room_Type 2', 'Room_Type 6', 'Room_Type 5', 'Room_Type 7', 'Room_Type 3'.",
-        "Column Meaning 'market_segment_type': Categorizes data into specific values: 'Offline', 'Online', 'Corporate', 'Aviation', 'Complementary'.",
-        "Column Meaning 'booking_status': Categorizes data into specific values: 'Not_Canceled', 'Canceled'.",
-        "TODO: Add human-defined metric formulas here (e.g., 'Revenue' = price * nights)"
-    ],
-    "constraints": [
-        "Rule: Always limit queries to 10 rows unless otherwise specified using LIMIT 10.",
-        "TODO: Add human-defined business rules here (e.g., 'Always exclude deleted/canceled records')"
-    ],
-    "examples": [
-        "Question: Show me the first 5 records from hotel_reservations.\nSQL: SELECT * FROM hotel_reservations LIMIT 5;"
-    ]
+  "dataset_name": "hotel_reservations",
+  "auto_extracted_schema": [
+    "- Booking_ID (varchar)",
+    "- no_of_adults (int)",
+    "- no_of_children (int)",
+    "- no_of_weekend_nights (int)",
+    "- no_of_week_nights (int)",
+    "- type_of_meal_plan (varchar)",
+    "- required_car_parking_space (int)",
+    "- room_type_reserved (varchar)",
+    "- lead_time (int)",
+    "- arrival_year (int)",
+    "- arrival_month (int)",
+    "- arrival_date (int)",
+    "- market_segment_type (varchar)",
+    "- repeated_guest (int)",
+    "- no_of_previous_cancellations (int)",
+    "- no_of_previous_bookings_not_canceled (int)",
+    "- avg_price_per_room (decimal)",
+    "- no_of_special_requests (int)",
+    "- booking_status (varchar)"
+  ],
+  "semantic_layer": [
+    "Column Format 'Booking_ID': Example values look like 'INN00001', 'INN00002'.",
+    "Column Meaning 'type_of_meal_plan': Categorizes data into specific values: 'Meal Plan 1', 'Not Selected', 'Meal Plan 2', 'Meal Plan 3'.",
+    "Column Meaning 'room_type_reserved': Categorizes data into specific values: 'Room_Type 1', 'Room_Type 4', 'Room_Type 2', 'Room_Type 6', 'Room_Type 5', 'Room_Type 7', 'Room_Type 3'.",
+    "Column Meaning 'market_segment_type': Categorizes data into specific values: 'Offline', 'Online', 'Corporate', 'Aviation', 'Complementary'.",
+    "Column Meaning 'booking_status': Categorizes data into specific values: 'Not_Canceled', 'Canceled'.",
+    "Business Meaning 'couples': In this dataset, couples means no_of_adults = 2 and no_of_children = 0.",
+    "Business Meaning 'family': In this dataset, family implies no_of_children > 0.",
+    "Business Meaning 'average room price': Use AVG(avg_price_per_room).",
+    "Business Meaning 'total stay nights': Use no_of_weekend_nights + no_of_week_nights.",
+    "Business Meaning 'GDS' or 'Global Distribution System': In this dataset, GDS-like bookings such as Amadeus should be interpreted as market_segment_type IN ('Corporate', 'Aviation').",
+    "Business Meaning 'Amadeus': Treat references to Amadeus as part of the GDS-related segment mapping: market_segment_type IN ('Corporate', 'Aviation').",
+    "Business Meaning 'OTA' or 'online travel agency': Interpret as market_segment_type = 'Online'.",
+    "Business Meaning 'walk-in' or 'direct booking': Interpret as market_segment_type = 'Offline'.",
+    "Business Meaning 'complimentary booking': Interpret as market_segment_type = 'Complementary'.",
+    "Business Meaning 'successful booking' or 'completed booking': Usually interpret as booking_status = 'Not_Canceled' unless the user explicitly asks to include cancellations."
+  ],
+  "constraints": [
+    "Rule: Always limit queries to 10 rows unless otherwise specified using LIMIT 10.",
+    "Rule: If a user uses a business term like GDS, Amadeus, OTA, direct, walk-in, or complimentary, and the mapping is not explicitly defined in semantic rules, do not guess. Return INSUFFICIENT_CONTEXT.",
+    "Rule: Do not infer that GDS means Online. Use only the explicit mapping in the semantic layer.",
+    "Rule: Do not infer that couples means only no_of_adults = 2. Couples requires both no_of_adults = 2 and no_of_children = 0.",
+    "Rule: Exclude canceled bookings only when the user asks for successful/completed/actual stays or when the business meaning explicitly requires it."
+  ],
+  "examples": [
+    "Question: Show me the first 5 records from hotel_reservations.\nSQL: SELECT * FROM hotel_reservations LIMIT 5;",
+    "Question: What is the average room price for couples who booked via a GDS like Amadeus?\nSQL: SELECT AVG(avg_price_per_room) FROM hotel_reservations WHERE no_of_adults = 2 AND no_of_children = 0 AND market_segment_type IN ('Corporate', 'Aviation');",
+    "Question: What is the average room price for online bookings?\nSQL: SELECT AVG(avg_price_per_room) FROM hotel_reservations WHERE market_segment_type = 'Online';",
+    "Question: Show successful bookings only.\nSQL: SELECT * FROM hotel_reservations WHERE booking_status = 'Not_Canceled' LIMIT 10;"
+  ]
 }

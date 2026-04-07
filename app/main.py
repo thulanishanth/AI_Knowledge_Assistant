@@ -13,42 +13,69 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.api.chat import router as chat_router
 from app.core.dependency_injection import container
-from app.core.settings import settings
 from app.core.logging import clear_request_id, get_logger, set_request_id, setup_logging
+from app.core.settings import settings
 
 setup_logging()
 logger = get_logger(__name__)
 
+
+async def _run_window_cleanup_forever(interval_seconds: int = 1800) -> None:
+    """Background cleanup for stale window-memory sessions."""
+    while True:
+        try:
+            await container.window_memory.cleanup_stale_sessions(max_idle_seconds=3600)
+            await asyncio.sleep(interval_seconds)
+        except asyncio.CancelledError:
+            logger.info("Window memory cleanup task gracefully shutting down.")
+            break
+        except Exception:
+            logger.exception("Window memory cleanup task failed.")
+            await asyncio.sleep(60)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown events."""
-    # Startup
     await container.initialize()
-    app.state.cleanup_task = asyncio.create_task(
+
+    memory_cleanup_task = asyncio.create_task(
         container.memory_manager.run_cleanup_forever()
     )
+    window_cleanup_task = asyncio.create_task(
+        _run_window_cleanup_forever()
+    )
+
+    app.state.memory_cleanup_task = memory_cleanup_task
+    app.state.window_cleanup_task = window_cleanup_task
+
     logger.info("Application startup completed")
     yield
-    # Shutdown
-    cleanup_task = app.state.cleanup_task
-    if cleanup_task is not None:
-        cleanup_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await cleanup_task
+
+    for task_name in ("memory_cleanup_task", "window_cleanup_task"):
+        task = getattr(app.state, task_name, None)
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
     logger.info("Application shutdown completed")
+
 
 app = FastAPI(
     title="AI Knowledge Assistant",
-    description="An AI-powered assistant for querying databases with natural language.",
+    description="An AI-powered assistant for querying business data with natural language.",
     version="1.0.0",
     lifespan=lifespan,
 )
-app.state.cleanup_task = None
+
+app.state.memory_cleanup_task = None
+app.state.window_cleanup_task = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -57,17 +84,22 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "X-Request-ID"],
 )
+
 app.include_router(chat_router, prefix="/api/chat", tags=["Chat"])
+
 
 @app.middleware("http")
 async def request_logging_middleware(
-    request: Request, call_next: Callable[[Request], Any]
+    request: Request,
+    call_next: Callable[[Request], Any],
 ) -> Response:
     """Attach request IDs and log per-request latency."""
     request_id = str(uuid.uuid4())[:8]
     set_request_id(request_id)
     start = time.perf_counter()
+
     logger.info("Incoming request %s %s", request.method, request.url.path)
+
     try:
         response = await call_next(request)
         duration_ms = (time.perf_counter() - start) * 1000
@@ -81,47 +113,51 @@ async def request_logging_middleware(
     finally:
         clear_request_id()
 
+
 def _api_status_message(frontend_dir: Path, frontend_index: Path) -> str:
     """Return a clear API root status message when static frontend is unavailable."""
     if frontend_dir.exists() and not frontend_index.exists():
         return (
             "AI Knowledge Assistant API is running. "
-            "Frontend index.html not found."
+            "Frontend directory exists, but index.html was not found."
         )
-    return "AI Knowledge Assistant API is running. Frontend directory not found."
+    return "AI Knowledge Assistant API is running."
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_DIR = settings.frontend_path if settings.frontend_path.exists() else BASE_DIR / "frontend"
-FRONTEND_INDEX = FRONTEND_DIR / "index.html"
+@app.get("/health")
+async def health_check() -> JSONResponse:
+    vector_ok = False
+    try:
+        vector_ok = await container.vector_memory.health_check()
+    except Exception:
+        logger.exception("Vector health check failed")
 
-if FRONTEND_DIR.exists() and FRONTEND_INDEX.exists():
+    payload = {
+        "status": "ok",
+        "app": "ai-knowledge-assistant",
+        "environment": settings.environment,
+        "vector_store_healthy": vector_ok,
+        "frontend_dir": str(settings.frontend_path),
+    }
+    return JSONResponse(payload)
+
+
+frontend_dir = settings.frontend_path
+frontend_index = frontend_dir / "index.html"
+
+if frontend_dir.exists() and frontend_index.exists():
     app.mount(
         "/",
-        StaticFiles(directory=str(FRONTEND_DIR), html=True, check_dir=True),
+        StaticFiles(directory=str(frontend_dir), html=True),
         name="frontend",
     )
-    logger.info("Frontend directory mounted successfully from %s", FRONTEND_DIR)
+    logger.info("Frontend directory mounted successfully from %s", frontend_dir)
 else:
-    if FRONTEND_DIR.exists():
-        logger.warning(
-            "Frontend directory found at %s, but index.html is missing. "
-            "Root will return API status.",
-            FRONTEND_DIR,
-        )
-    else:
-        logger.warning(
-            "Frontend directory not found at %s. Root will return API status.",
-            FRONTEND_DIR,
-        )
-
     @app.get("/")
-    def root() -> dict[str, str]:
-        """Return API status when the static frontend is unavailable."""
-        return {"message": _api_status_message(FRONTEND_DIR, FRONTEND_INDEX)}
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    async def root_status() -> JSONResponse:
+        return JSONResponse(
+            {
+                "message": _api_status_message(frontend_dir, frontend_index),
+                "frontend_dir": str(frontend_dir),
+            }
+        )

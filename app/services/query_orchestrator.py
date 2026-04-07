@@ -13,13 +13,18 @@ from app.observability.metrics import metrics
 from app.observability.structured_logger import log_event
 from app.observability.tracing import tracing
 from app.security.input_sanitizer import sanitize_question
+from app.services.confidence_checker import check_confidence
+from app.services.conversation_state_store import (
+    ConversationStateStore,
+    LastQueryState,
+)
+from app.services.intent_service import IntentService
+from app.services.llm_client import call_llm
+from app.services.prompt_builder import PromptBuilder
 from app.services.response_formatter import ResponseFormatter
 from app.services.schema_service import SchemaService
 from app.services.sql_execution_service import QueryExecutionResult, SQLExecutionService
 from app.services.sql_generation_service import SQLGenerationService
-from app.services.intent_service import IntentService
-from app.services.llm_client import call_llm
-from app.services.prompt_builder import PromptBuilder
 
 logger = get_logger(__name__)
 
@@ -39,7 +44,7 @@ class QueryResponse:
 
 
 class QueryOrchestrator:
-    """Intelligent database query pipeline with intent routing and dynamic synthesis."""
+    """High-accuracy database query pipeline with follow-up state and safer prompting."""
 
     def __init__(
         self,
@@ -51,6 +56,7 @@ class QueryOrchestrator:
         sql_generation_service: SQLGenerationService,
         sql_execution_service: SQLExecutionService,
         response_formatter: ResponseFormatter,
+        conversation_state_store: ConversationStateStore,
         prompt_builder: PromptBuilder,
     ) -> None:
         self._session_manager = session_manager
@@ -60,8 +66,11 @@ class QueryOrchestrator:
         self._sql_generation_service = sql_generation_service
         self._sql_execution_service = sql_execution_service
         self._response_formatter = response_formatter
+        self._conversation_state_store = conversation_state_store
         self._prompt_builder = prompt_builder
-        self._query_cache: TTLCache[QueryExecutionResult] = TTLCache(settings.query_cache_ttl_seconds)
+        self._query_cache: TTLCache[QueryExecutionResult] = TTLCache(
+            settings.query_cache_ttl_seconds
+        )
 
     async def handle_query(
         self,
@@ -73,279 +82,542 @@ class QueryOrchestrator:
         if not sanitized.normalized:
             raise ValueError("Question cannot be empty.")
 
-        session_ctx = self._session_manager.resolve(user_id=user_id, session_id=session_id)
+        session_ctx = self._session_manager.resolve(
+            user_id=user_id,
+            session_id=session_id,
+        )
 
         with tracing.span("query.handle"), metrics.timer("query_total"):
             schema = await self._schema_service.get_schema()
-            
-            # ==========================================
-            # 1. FETCH & UNPACK ALL MEMORY COMPONENTS
-            # ==========================================
+
             session_context = ""
             debug_rag = ""
             debug_summary = ""
-            debug_window = []
-            debug_vector = []
-            
+            debug_window: list[dict[str, Any]] = []
+            debug_vector: list[dict[str, Any]] = []
+
             try:
                 memory_context = await self._memory_manager.get_context_for_llm(
                     user_id=session_ctx.user_id,
                     session_id=session_ctx.session_id,
                     user_query=sanitized.normalized,
-                    include_vector=True, 
-                    rag_context=None # <--- CRITICAL: Must be None to trigger live DB schema fetch!
+                    include_vector=True,
+                    rag_context=None,
                 )
-                
                 session_context = str(memory_context.get("aggregated_context", ""))
-                debug_rag = memory_context.get("rag_context", "")
-                debug_summary = memory_context.get("summary", "")
-                debug_window = memory_context.get("window_messages", [])
-                debug_vector = memory_context.get("vector_results", []) 
-                
+                debug_rag = str(memory_context.get("rag_context", ""))
+                debug_summary = str(memory_context.get("summary", ""))
+                debug_window = list(memory_context.get("window_messages", []))
+                debug_vector = list(memory_context.get("vector_results", []))
             except Exception:
                 logger.exception("Memory context load failed")
 
-            # --- 2. Let the LLM figure out exactly what the user wants! ---
             analysis = await asyncio.to_thread(
-                self._intent_service.analyze, 
-                user_question=sanitized.normalized, 
-                memory_context=session_context
+                self._intent_service.analyze,
+                user_question=sanitized.normalized,
+                memory_context=session_context,
             )
-            
             intent = analysis.get("intent", "database_query")
-            
-            def build_debug_meta(strategy: str, sql: str = "", ms: float = 0.0, rows: int = 0, cached: bool = False, sql_prompt: str = None, synth_prompt: str = None):
+
+            last_state = await self._conversation_state_store.get_last_query_state(
+                session_ctx.user_id,
+                session_ctx.session_id,
+            )
+
+            def build_debug_meta(
+                strategy: str,
+                sql: str = "",
+                ms: float = 0.0,
+                rows: int = 0,
+                cached: bool = False,
+                sql_prompt: str | None = None,
+                synth_prompt: str | None = None,
+            ) -> dict[str, Any]:
                 return {
-                    "strategy": strategy, "cached": cached, "row_count": rows, "execution_ms": round(ms, 2), "sql": sql,
+                    "strategy": strategy,
+                    "cached": cached,
+                    "row_count": rows,
+                    "execution_ms": round(ms, 2),
+                    "sql": sql,
                     "memory_architecture": {
                         "1_rag_schema": debug_rag,
                         "2_recent_window": debug_window,
                         "3_rolling_summary": debug_summary,
                         "4_chromadb_vector_matches": debug_vector,
-                        "5_final_aggregated_context": session_context
+                        "5_final_aggregated_context": session_context,
                     },
                     "intent_analysis": analysis,
                     "llm_prompts": {
                         "sql_generation": sql_prompt,
-                        "synthesis": synth_prompt
-                    }
+                        "synthesis": synth_prompt,
+                    },
                 }
 
-            # --- 3. Schema Inquiry ---
             if intent == "schema_inquiry":
                 schema_answer = schema.to_prompt_block()
                 return QueryResponse(
-                    answer=schema_answer, confidence=1.0, session_id=session_ctx.session_id,
-                    presentation={"kind": "notice", "title": f"Schema for {schema.table_name}", "message": schema_answer},
-                    meta=build_debug_meta("llm_intent_schema"),
+                    answer=schema_answer,
+                    confidence=1.0,
+                    session_id=session_ctx.session_id,
+                    presentation={
+                        "kind": "notice",
+                        "title": f"Schema for {schema.table_name}",
+                        "message": schema_answer,
+                    },
+                    meta=build_debug_meta("schema_inquiry"),
                 )
-            
-            # --- 4. Greeting, Chitchat, or Explanation ---
-            if intent in ["greeting", "general_chitchat", "explanation"]:
-                chat_answer = analysis.get("direct_response", "I'm sorry, I couldn't generate an explanation.")
-                
+
+            if intent in {"greeting", "general_chitchat"}:
+                chat_answer = analysis.get(
+                    "direct_response",
+                    "Hello! How can I help you with your data?",
+                )
                 try:
                     await self._memory_manager.update_memory_pipeline(
-                        user_id=session_ctx.user_id, session_id=session_ctx.session_id,
-                        question=sanitized.normalized, answer=chat_answer,
+                        user_id=session_ctx.user_id,
+                        session_id=session_ctx.session_id,
+                        question=sanitized.normalized,
+                        answer=chat_answer,
                     )
                 except Exception:
-                    pass
-                    
-                strategy_name = "intent_explanation" if intent == "explanation" else "intent_chitchat"
-                
+                    logger.debug("Memory update skipped for greeting/chitchat", exc_info=True)
+
                 return QueryResponse(
-                    answer=chat_answer, confidence=1.0, session_id=session_ctx.session_id,
+                    answer=chat_answer,
+                    confidence=1.0,
+                    session_id=session_ctx.session_id,
                     presentation={"kind": "text", "message": chat_answer},
-                    meta=build_debug_meta(strategy_name),
+                    meta=build_debug_meta("intent_chitchat"),
                 )
 
-            # --- 5. Database Query Flow ---
-            final_query = analysis.get("corrected_query", sanitized.normalized)
-            difficulty_score = analysis.get("difficulty_score", 50) 
-            
-            if difficulty_score <= 50:
-                target_model, is_cloud = "local-llm", False  
-            elif difficulty_score <= 60:
-                target_model, is_cloud = "gpt-4o-mini", True   
-            elif difficulty_score <= 85:
-                target_model, is_cloud = "gpt-4-turbo", True
+            if intent == "ask_for_sql":
+                if last_state is None:
+                    answer = "I do not have a previous SQL query in this session yet."
+                else:
+                    answer = (
+                        f"Here is the SQL from the last successful answer:\n\n"
+                        f"```sql\n{last_state.executed_sql or last_state.generated_sql}\n```"
+                    )
+                return QueryResponse(
+                    answer=answer,
+                    confidence=1.0,
+                    session_id=session_ctx.session_id,
+                    presentation={"kind": "text", "message": answer},
+                    meta=build_debug_meta(
+                        "ask_for_sql",
+                        sql=last_state.executed_sql if last_state else "",
+                    ),
+                )
+
+            if intent == "ask_for_source":
+                answer = self._build_source_answer(last_state, schema.table_name)
+                return QueryResponse(
+                    answer=answer,
+                    confidence=1.0,
+                    session_id=session_ctx.session_id,
+                    presentation={"kind": "text", "message": answer},
+                    meta=build_debug_meta(
+                        "ask_for_source",
+                        sql=last_state.executed_sql if last_state else "",
+                    ),
+                )
+
+            if intent == "explain_last_answer":
+                answer = self._build_explanation_answer(last_state)
+                return QueryResponse(
+                    answer=answer,
+                    confidence=1.0,
+                    session_id=session_ctx.session_id,
+                    presentation={"kind": "text", "message": answer},
+                    meta=build_debug_meta(
+                        "explain_last_answer",
+                        sql=last_state.executed_sql if last_state else "",
+                    ),
+                )
+
+            final_query = self._resolve_final_question(
+                analysis=analysis,
+                sanitized_question=sanitized.normalized,
+                last_state=last_state,
+            )
+
+            if intent == "refine_last_query" and last_state is None:
+                answer = "There is no previous successful query in this session to refine yet."
+                return QueryResponse(
+                    answer=answer,
+                    confidence=0.7,
+                    session_id=session_ctx.session_id,
+                    presentation={"kind": "notice", "message": answer},
+                    meta=build_debug_meta("refine_last_query_missing_state"),
+                )
+
+            difficulty_score = int(analysis.get("difficulty_score", 50))
+            if difficulty_score <= 55:
+                target_model, is_cloud = "local-llm", False
+            elif difficulty_score <= 75:
+                target_model, is_cloud = "gpt-4o-mini", True
             else:
-                target_model, is_cloud = "gpt-4o", True 
+                target_model, is_cloud = "gpt-4o", True
 
-            logger.info(f"🔀 [MODEL ROUTER] Difficulty: {difficulty_score}/100 | Selected Model: {target_model}")
+            logger.info(
+                "Model router selected model=%s is_cloud=%s difficulty=%s",
+                target_model,
+                is_cloud,
+                difficulty_score,
+            )
 
-            # ==========================================
-            # FILTER CONTEXT: STRICTLY RAG KNOWLEDGE ONLY
-            # ==========================================
-            clean_business_rules = ""
-            if debug_vector:
-                knowledge_only = [
-                    item for item in debug_vector 
-                    if item.get("source") == "knowledge_memory"
-                ]
-                clean_business_rules = "\n".join([f"- {item.get('text', '')}" for item in knowledge_only])
+            vector_rule_block = self._extract_knowledge_rules(debug_vector)
+            local_rule_block = self._schema_service.get_local_rule_block()
+            clean_business_rules = self._merge_rule_blocks(local_rule_block, vector_rule_block)
+            examples_context = self._schema_service.get_relevant_examples(
+                question=final_query,
+                schema=schema,
+            )
 
-            # ==========================================
-            # SELF-HEALING SQL EXECUTION LOOP
-            # ==========================================
             max_attempts = 3
             attempt = 1
-            db_error_message = None
-            previous_sql = None
-            execution = None
+            db_error_message: str | None = None
+            previous_sql: str | None = None
+            execution: QueryExecutionResult | None = None
             sql_result = None
             debug_sql_prompt = ""
             cached = False
 
             while attempt <= max_attempts:
-                # 1. Inject Error Reflection if this is a retry attempt
                 current_context = clean_business_rules
                 if attempt > 1 and db_error_message and previous_sql:
-                    logger.warning(f"🔄 [SELF-HEALING] Attempt {attempt}/{max_attempts} triggered to fix SQL error.")
-                    reflection_msg = (
-                        f"\n\nCRITICAL ERROR REFLECTION:\n"
-                        f"Your previous SQL query:\n```sql\n{previous_sql}\n```\n"
-                        f"Failed with the following database error:\n{db_error_message}\n\n"
-                        f"Please analyze the schema carefully and write a corrected SQL query that fixes this exact error."
+                    current_context = self._merge_rule_blocks(
+                        clean_business_rules,
+                        (
+                            "Retry guidance:\n"
+                            f"- Previous SQL failed: {previous_sql}\n"
+                            f"- Database error: {db_error_message}"
+                        ),
                     )
-                    current_context += reflection_msg
 
-                # 2. Build Prompt and Generate SQL
                 debug_sql_prompt = self._prompt_builder.build_sql_prompt(
-                question=final_query, schema=schema, session_context=clean_business_rules
-            )
+                    question=final_query,
+                    schema=schema,
+                    session_context=current_context,
+                    examples_context=examples_context,
+                )
 
                 sql_result = await self._sql_generation_service.generate_sql(
-                question=final_query, schema=schema, session_context=clean_business_rules,
-                model=target_model, is_cloud=is_cloud
-            )
-                logger.info(f"🚀 [LLM SQL] (Attempt {attempt}): {sql_result.sql}")
+                    question=final_query,
+                    schema=schema,
+                    session_context=current_context,
+                    examples_context=examples_context,
+                    model=target_model,
+                    is_cloud=is_cloud,
+                )
 
-                # 3. Security Check (Break immediately if malicious, do NOT retry)
+                logger.info("Generated SQL attempt=%s sql=%s", attempt, sql_result.sql)
+
                 if not sql_result.is_valid:
-                    error_details = "; ".join(sql_result.validation.errors)
-                    safe_answer = "Security Alert: Prohibited operation." if "Write operations" in error_details else f"Blocked: {error_details}"
-                    if sql_result.notice: 
-                        safe_answer = f"{sql_result.notice}\n\n{safe_answer}"
+                    answer = self._build_invalid_sql_answer(sql_result.validation.errors)
+                    if sql_result.notice:
+                        answer = f"{sql_result.notice}\n\n{answer}"
 
                     try:
                         await self._memory_manager.update_memory_pipeline(
-                            user_id=session_ctx.user_id, session_id=session_ctx.session_id,
-                            question=final_query, answer=safe_answer, full_prompt=debug_sql_prompt,
-                            rag_context=current_context, generated_sql=sql_result.sql, 
-                            execution_status="Failed (Security Blocked)", 
+                            user_id=session_ctx.user_id,
+                            session_id=session_ctx.session_id,
+                            question=final_query,
+                            answer=answer,
+                            full_prompt=debug_sql_prompt,
+                            rag_context=current_context,
+                            generated_sql=sql_result.sql,
+                            execution_status="Failed (Validation Blocked)",
                         )
-                    except Exception as e:
-                        logger.error(f"Memory pipeline failed during security block: {e}")
+                    except Exception:
+                        logger.debug("Memory pipeline failed during SQL validation block", exc_info=True)
 
                     return QueryResponse(
-                        answer=safe_answer, confidence=1.0, session_id=session_ctx.session_id,
-                        presentation={"kind": "notice", "title": "Action Blocked", "message": safe_answer},
-                        meta=build_debug_meta("security_blocked", sql=sql_result.sql, sql_prompt=debug_sql_prompt),
+                        answer=answer,
+                        confidence=0.2,
+                        session_id=session_ctx.session_id,
+                        presentation={
+                            "kind": "notice",
+                            "title": "Query Blocked",
+                            "message": answer,
+                        },
+                        meta=build_debug_meta(
+                            "validation_blocked",
+                            sql=sql_result.sql,
+                            sql_prompt=debug_sql_prompt,
+                        ),
                     )
 
-                # 4. Attempt to Execute the SQL
                 cache_key = f"{schema.fingerprint}|{sql_result.sql}"
                 execution = self._query_cache.get(cache_key)
                 cached = execution is not None
 
                 if execution is None:
-                    try:
-                        execution = self._sql_execution_service.execute(sql_result.sql)
-                        if hasattr(execution, "error_message") and execution.error_message:
-                            raise ValueError(execution.error_message)
-                        # Success! Break the loop
-                        break 
-                    except Exception as e:
-                        db_error_message = str(e)
+                    execution = self._sql_execution_service.execute(sql_result.sql)
+                    if execution.error_message:
+                        db_error_message = execution.error_message
                         previous_sql = sql_result.sql
-                        logger.error(f"❌ SQL Execution Failed: {db_error_message}")
                         attempt += 1
-                        continue 
-                else:
-                    break
+                        continue
+                    self._query_cache.set(cache_key, execution)
 
-            # ==========================================
-            # ULTIMATE FAILURE FALLBACK
-            # ==========================================
-            if execution is None or (hasattr(execution, "error_message") and execution.error_message):
-                failed_msg = "I encountered a technical error while querying the database and could not resolve it. Please try rephrasing your question."
-                try:
-                    await self._memory_manager.update_memory_pipeline(
-                        user_id=session_ctx.user_id, session_id=session_ctx.session_id,
-                        question=final_query, answer=failed_msg, full_prompt=debug_sql_prompt,
-                        rag_context=clean_business_rules, generated_sql=sql_result.sql if sql_result else "None", 
-                        execution_status=f"Failed after {max_attempts} attempts. Last Error: {db_error_message}", 
-                    )
-                except Exception as e:
-                    logger.error(f"Memory pipeline failed during DB error block: {e}")
-                    
-                return QueryResponse(
-                    answer=failed_msg, confidence=0.0, session_id=session_ctx.session_id,
-                    presentation={"kind": "error", "message": db_error_message},
-                    meta=build_debug_meta("execution_failed", sql=sql_result.sql if sql_result else "", sql_prompt=debug_sql_prompt),
+                break
+
+            if execution is None or execution.error_message:
+                failed_msg = (
+                    f"I could not produce a reliable answer from the current schema and rules. "
+                    f"Last database error: {db_error_message or 'unknown error'}"
                 )
 
-            # ==========================================
-            # DYNAMIC SYNTHESIS
-            # ==========================================
-            explanation = "Here are the results I found for your query:"
+                try:
+                    await self._memory_manager.update_memory_pipeline(
+                        user_id=session_ctx.user_id,
+                        session_id=session_ctx.session_id,
+                        question=final_query,
+                        answer=failed_msg,
+                        full_prompt=debug_sql_prompt,
+                        rag_context=clean_business_rules,
+                        generated_sql=sql_result.sql if sql_result else "",
+                        execution_status=f"Failed after {max_attempts} attempts",
+                    )
+                except Exception:
+                    logger.debug("Memory pipeline failed during DB failure block", exc_info=True)
+
+                return QueryResponse(
+                    answer=failed_msg,
+                    confidence=0.0,
+                    session_id=session_ctx.session_id,
+                    presentation={"kind": "error", "message": db_error_message},
+                    meta=build_debug_meta(
+                        "execution_failed",
+                        sql=sql_result.sql if sql_result else "",
+                        sql_prompt=debug_sql_prompt,
+                    ),
+                )
+
+            explanation = "Here are the results I found."
             debug_synthesis_prompt = None
-            
+
             if execution.rows:
                 try:
                     data_preview = json.dumps(execution.rows[:5], default=str)
                     debug_synthesis_prompt = self._prompt_builder.build_synthesis_prompt(
-                        question=final_query, data_preview=data_preview
+                        question=final_query,
+                        data_preview=data_preview,
+                        row_count=execution.row_count,
+                        executed_sql=execution.executed_sql,
                     )
                     explanation = await asyncio.to_thread(
-                        call_llm, prompt=debug_synthesis_prompt, max_tokens=150, temperature=0.3
+                        call_llm,
+                        prompt=debug_synthesis_prompt,
+                        max_tokens=180,
+                        temperature=0.0,
                     )
-                except Exception as e:
-                    logger.error(f"Synthesis failed: {e}")
+                except Exception as exc:
+                    logger.error("Synthesis failed: %s", exc)
+                    explanation = self._fallback_answer_from_rows(
+                        final_query,
+                        execution.rows,
+                        execution.row_count,
+                    )
             else:
-                explanation = "I ran the query, but I couldn't find any data matching your request."
+                explanation = "I ran the query, but I could not find any data matching your request."
 
             if sql_result.notice:
                 explanation = f"{sql_result.notice}\n\n{explanation}"
 
-            table_text, presentation = self._response_formatter.format_database_result(
-                question=final_query, rows=execution.rows, truncated=execution.truncated,
+            _, presentation = self._response_formatter.format_database_result(
+                question=final_query,
+                rows=execution.rows,
+                truncated=execution.truncated,
             )
 
-            confidence = 0.95 if execution.row_count > 0 else 0.85
-            exec_status = f"Success ({execution.row_count} rows)" if execution.row_count > 0 else "Success (0 rows)"
+            grounding_context = "\n\n".join(
+                block
+                for block in [
+                    schema.to_prompt_block(),
+                    clean_business_rules,
+                    examples_context,
+                    json.dumps(execution.rows[:5], default=str) if execution.rows else "",
+                ]
+                if block
+            )
+            confidence = check_confidence(explanation, grounding_context)
+            if execution.rows and confidence < 0.8:
+                confidence = 0.8
+            if not execution.rows:
+                confidence = min(confidence, 0.85)
 
-            # --- UPDATE MEMORY PIPELINE FOR SUCCESSFUL QUERIES ---
+            exec_status = (
+                f"Success ({execution.row_count} rows)"
+                if execution.row_count > 0
+                else "Success (0 rows)"
+            )
+
+            await self._conversation_state_store.save_last_query_state(
+                session_ctx.user_id,
+                session_ctx.session_id,
+                LastQueryState(
+                    user_id=session_ctx.user_id,
+                    session_id=session_ctx.session_id,
+                    original_question=sanitized.normalized,
+                    corrected_question=final_query,
+                    generated_sql=sql_result.sql,
+                    executed_sql=execution.executed_sql,
+                    execution_status=exec_status,
+                    answer=explanation,
+                    rows=execution.rows[:10],
+                    row_count=execution.row_count,
+                    truncated=execution.truncated,
+                    selected_columns=execution.selected_columns,
+                    source_table=schema.table_name,
+                ),
+            )
+
             try:
                 await self._memory_manager.update_memory_pipeline(
-                    user_id=session_ctx.user_id, 
+                    user_id=session_ctx.user_id,
                     session_id=session_ctx.session_id,
-                    question=final_query, 
+                    question=final_query,
                     answer=explanation,
                     full_prompt=debug_sql_prompt,
-                    rag_context=clean_business_rules, 
+                    rag_context=clean_business_rules,
                     generated_sql=sql_result.sql,
-                    execution_status=exec_status, 
+                    execution_status=exec_status,
                 )
-            except Exception as e:
-                logger.error(f"CRITICAL: Memory pipeline failed to save to text files: {e}")
+            except Exception:
+                logger.debug("Memory pipeline failed during success path", exc_info=True)
 
-            log_event("info", "query_completed", strategy=sql_result.strategy, rows=execution.row_count)
+            log_event(
+                "info",
+                "query_completed",
+                strategy=sql_result.strategy,
+                rows=execution.row_count,
+                cached=cached,
+            )
 
             return QueryResponse(
-                answer=explanation, 
-                confidence=confidence, 
+                answer=explanation,
+                confidence=round(confidence, 2),
                 session_id=session_ctx.session_id,
                 presentation=presentation,
                 meta=build_debug_meta(
-                    strategy=sql_result.strategy, 
-                    sql=execution.executed_sql, 
-                    ms=execution.execution_ms, 
-                    rows=execution.row_count, 
+                    strategy=sql_result.strategy,
+                    sql=execution.executed_sql,
+                    ms=execution.execution_ms,
+                    rows=execution.row_count,
                     cached=cached,
                     sql_prompt=debug_sql_prompt,
                     synth_prompt=debug_synthesis_prompt,
                 ),
             )
+
+    @staticmethod
+    def _merge_rule_blocks(*blocks: str) -> str:
+        clean = [str(block).strip() for block in blocks if str(block).strip()]
+        return "\n\n".join(clean)
+
+    @staticmethod
+    def _extract_knowledge_rules(vector_results: list[dict[str, Any]]) -> str:
+        lines: list[str] = []
+        seen: set[str] = set()
+
+        for item in vector_results:
+            if item.get("source") != "knowledge_memory":
+                continue
+            text = str(item.get("text", "")).strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            lines.append(f"- {text}")
+
+        return "\n".join(lines[:15])
+
+    @staticmethod
+    def _resolve_final_question(
+        analysis: dict[str, Any],
+        sanitized_question: str,
+        last_state: LastQueryState | None,
+    ) -> str:
+        corrected = str(analysis.get("corrected_query", sanitized_question)).strip()
+        intent = str(analysis.get("intent", "database_query")).strip()
+        is_follow_up = bool(analysis.get("is_follow_up", False))
+
+        if intent == "refine_last_query" and last_state is not None:
+            return (
+                f"{last_state.corrected_question}. "
+                f"Apply this refinement: {sanitized_question}"
+            )
+
+        if is_follow_up and last_state is not None and len(corrected.split()) < 6:
+            return (
+                f"{last_state.corrected_question}. "
+                f"Follow-up request: {sanitized_question}"
+            )
+
+        return corrected or sanitized_question
+
+    @staticmethod
+    def _build_invalid_sql_answer(errors: list[str]) -> str:
+        lowered = " | ".join(errors).lower()
+
+        if "insufficient context" in lowered or "could not ground" in lowered:
+            return (
+                "I could not generate a reliable SQL query from the current schema and business rules. "
+                "This usually means the requested metric or business logic is not explicitly defined yet."
+            )
+
+        if "forbidden" in lowered or "only select" in lowered or "reference only" in lowered:
+            return f"Blocked for safety: {'; '.join(errors)}"
+
+        return f"I could not produce a reliable SQL query: {'; '.join(errors)}"
+
+    @staticmethod
+    def _build_source_answer(
+        last_state: LastQueryState | None,
+        default_table: str,
+    ) -> str:
+        if last_state is None:
+            return "I do not have a previous successful answer in this session yet."
+
+        columns = ", ".join(last_state.selected_columns) if last_state.selected_columns else "Unknown"
+        table_name = last_state.source_table or default_table
+
+        return (
+            f"The last answer was based on table `{table_name}`.\n"
+            f"Selected columns: {columns}.\n"
+            f"Rows returned in the answer pipeline: {last_state.row_count}.\n"
+            f"Executed SQL:\n```sql\n{last_state.executed_sql or last_state.generated_sql}\n```"
+        )
+
+    @staticmethod
+    def _build_explanation_answer(last_state: LastQueryState | None) -> str:
+        if last_state is None:
+            return "I do not have a previous successful answer in this session yet."
+
+        columns = ", ".join(last_state.selected_columns) if last_state.selected_columns else "Unknown"
+
+        return (
+            f"The last answer came from running SQL against the source table `{last_state.source_table or 'unknown'}`.\n"
+            f"It answered this cleaned question: {last_state.corrected_question}\n"
+            f"Selected columns: {columns}\n"
+            f"Rows returned: {last_state.row_count}\n"
+            f"Execution status: {last_state.execution_status}\n"
+            f"Executed SQL:\n```sql\n{last_state.executed_sql or last_state.generated_sql}\n```"
+        )
+
+    @staticmethod
+    def _fallback_answer_from_rows(
+        question: str,
+        rows: list[dict[str, Any]],
+        row_count: int,
+    ) -> str:
+        if not rows:
+            return "I ran the query, but I could not find any matching rows."
+
+        first = rows[0]
+        preview = ", ".join(f"{key}={value}" for key, value in list(first.items())[:4])
+
+        if row_count == 1:
+            return f"I found 1 matching row for your request. Example: {preview}."
+        return f"I found {row_count} rows for your request. First row preview: {preview}."

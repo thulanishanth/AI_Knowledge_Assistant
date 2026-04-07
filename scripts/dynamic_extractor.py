@@ -1,3 +1,4 @@
+# app/scripts/dynamic_extractor.py
 import pandas as pd
 import json
 import argparse
