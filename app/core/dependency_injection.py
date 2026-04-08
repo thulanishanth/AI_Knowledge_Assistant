@@ -15,6 +15,10 @@ from app.memory.summary_memory import SummaryMemory
 from app.memory.vector_memory import VectorMemory
 from app.memory.window_memory import WindowMemory
 from app.security.sql_guard import SqlGuard
+from app.services.business_logic_injector import BusinessLogicInjector
+from app.services.business_logic_resolver import BusinessLogicResolver
+from app.services.business_logic_search_service import BusinessLogicSearchService
+from app.services.business_term_detector import BusinessTermDetector
 from app.services.conversation_state_store import ConversationStateStore
 from app.services.embedding_service import EmbeddingService
 from app.services.intent_service import IntentService
@@ -55,17 +59,14 @@ class ServiceContainer:
     def __init__(self) -> None:
         self.session_manager = SessionManager()
 
-        # Persistence / repositories
         self.chat_history_repository = ChatHistoryRepository()
         self.schema_repository = SchemaRepository()
 
-        # Core services
         self.schema_service = SchemaService(self.schema_repository)
         self.sql_guard = SqlGuard()
         self.prompt_builder = PromptBuilder()
         self.conversation_state_store = ConversationStateStore()
 
-        # Vector / memory services
         self.embedding_service = EmbeddingService()
         self.reranker_service = RerankerService()
         self.vector_store = ChromaAdapter()
@@ -74,6 +75,7 @@ class ServiceContainer:
             embedding_service=self.embedding_service,
             reranker_service=self.reranker_service,
         )
+
         self.window_memory = WindowMemory()
         self.summary_memory = SummaryMemory()
         self.context_aggregator = ContextAggregator()
@@ -84,8 +86,12 @@ class ServiceContainer:
             context_aggregator=self.context_aggregator,
         )
 
-        # Intelligence / execution services
         self.intent_service = IntentService(prompt_builder=self.prompt_builder)
+        self.business_term_detector = BusinessTermDetector()
+        self.business_logic_search_service = BusinessLogicSearchService(self.vector_memory)
+        self.business_logic_resolver = BusinessLogicResolver()
+        self.business_logic_injector = BusinessLogicInjector()
+
         self.sql_generation_service = SQLGenerationService(
             sql_guard=self.sql_guard,
             prompt_builder=self.prompt_builder,
@@ -93,12 +99,15 @@ class ServiceContainer:
         self.sql_execution_service = SQLExecutionService()
         self.response_formatter = ResponseFormatter()
 
-        # Orchestrator
         self.query_orchestrator = QueryOrchestrator(
             session_manager=self.session_manager,
             memory_manager=self.memory_manager,
             schema_service=self.schema_service,
             intent_service=self.intent_service,
+            business_term_detector=self.business_term_detector,
+            business_logic_search_service=self.business_logic_search_service,
+            business_logic_resolver=self.business_logic_resolver,
+            business_logic_injector=self.business_logic_injector,
             sql_generation_service=self.sql_generation_service,
             sql_execution_service=self.sql_execution_service,
             response_formatter=self.response_formatter,
@@ -107,7 +116,6 @@ class ServiceContainer:
         )
 
     async def initialize(self) -> None:
-        """Initialize services requiring async startup work."""
         await self.memory_manager.initialize_memory_manager()
 
 

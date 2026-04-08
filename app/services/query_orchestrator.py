@@ -44,7 +44,7 @@ class QueryResponse:
 
 
 class QueryOrchestrator:
-    """High-accuracy database query pipeline with follow-up state and safer prompting."""
+    """High-accuracy database query pipeline with business-term resolution."""
 
     def __init__(
         self,
@@ -53,6 +53,10 @@ class QueryOrchestrator:
         memory_manager,
         schema_service: SchemaService,
         intent_service: IntentService,
+        business_term_detector,
+        business_logic_search_service,
+        business_logic_resolver,
+        business_logic_injector,
         sql_generation_service: SQLGenerationService,
         sql_execution_service: SQLExecutionService,
         response_formatter: ResponseFormatter,
@@ -63,6 +67,10 @@ class QueryOrchestrator:
         self._memory_manager = memory_manager
         self._schema_service = schema_service
         self._intent_service = intent_service
+        self._business_term_detector = business_term_detector
+        self._business_logic_search_service = business_logic_search_service
+        self._business_logic_resolver = business_logic_resolver
+        self._business_logic_injector = business_logic_injector
         self._sql_generation_service = sql_generation_service
         self._sql_execution_service = sql_execution_service
         self._response_formatter = response_formatter
@@ -124,6 +132,14 @@ class QueryOrchestrator:
                 session_ctx.session_id,
             )
 
+            business_debug: dict[str, Any] = {
+                "detected_terms": [],
+                "search_results": {},
+                "resolved_terms": [],
+                "unresolved_terms": [],
+                "injected_block": "",
+            }
+
             def build_debug_meta(
                 strategy: str,
                 sql: str = "",
@@ -146,6 +162,7 @@ class QueryOrchestrator:
                         "4_chromadb_vector_matches": debug_vector,
                         "5_final_aggregated_context": session_context,
                     },
+                    "business_term_resolution": business_debug,
                     "intent_analysis": analysis,
                     "llm_prompts": {
                         "sql_generation": sql_prompt,
@@ -252,12 +269,7 @@ class QueryOrchestrator:
                 )
 
             difficulty_score = int(analysis.get("difficulty_score", 50))
-            if difficulty_score <= 55:
-                target_model, is_cloud = "local-llm", False
-            elif difficulty_score <= 75:
-                target_model, is_cloud = "gpt-4o-mini", True
-            else:
-                target_model, is_cloud = "gpt-4o", True
+            target_model, is_cloud = "local-llm", False
 
             logger.info(
                 "Model router selected model=%s is_cloud=%s difficulty=%s",
@@ -273,6 +285,67 @@ class QueryOrchestrator:
                 question=final_query,
                 schema=schema,
             )
+
+            # ---------------------------------------------------------
+            # BUSINESS TERM DETECTION -> SEARCH -> RESOLUTION -> INJECT
+            # ---------------------------------------------------------
+            active_context = self._schema_service.get_business_context()
+            domain_hint = self._infer_domain_hint(schema.table_name, active_context)
+
+            detected_terms = self._business_term_detector.detect_terms(
+                question=final_query,
+                known_schema_columns=list(schema.column_names),
+                active_context=active_context,
+            )
+            business_debug["detected_terms"] = detected_terms
+
+            if detected_terms:
+                search_results = await self._business_logic_search_service.search_terms(
+                    terms=detected_terms,
+                    domain_hint=domain_hint,
+                    top_k_per_term=5,
+                )
+                business_debug["search_results"] = {
+                    term: [
+                        {
+                            "id": match.get("id"),
+                            "score": match.get("score"),
+                            "text": str(match.get("text", ""))[:250],
+                            "metadata": match.get("metadata", {}),
+                        }
+                        for match in matches
+                    ]
+                    for term, matches in search_results.items()
+                }
+
+                resolution = self._business_logic_resolver.resolve(search_results)
+                business_debug["resolved_terms"] = [
+                    {
+                        "user_term": item.user_term,
+                        "canonical_term": item.canonical_term,
+                        "sql_condition": item.sql_condition,
+                        "score": item.score,
+                        "source": item.source,
+                    }
+                    for item in resolution.resolved_terms
+                ]
+                business_debug["unresolved_terms"] = resolution.unresolved_terms
+
+                if resolution.unresolved_terms:
+                    answer = self._business_logic_injector.build_insufficient_context_message(
+                        resolution.unresolved_terms
+                    )
+                    return QueryResponse(
+                        answer=answer,
+                        confidence=0.15,
+                        session_id=session_ctx.session_id,
+                        presentation={"kind": "notice", "message": answer},
+                        meta=build_debug_meta("business_logic_insufficient"),
+                    )
+
+                injected_block = self._business_logic_injector.build_injection_block(resolution)
+                business_debug["injected_block"] = injected_block
+                clean_business_rules = self._merge_rule_blocks(clean_business_rules, injected_block)
 
             max_attempts = 3
             attempt = 1
@@ -621,3 +694,20 @@ class QueryOrchestrator:
         if row_count == 1:
             return f"I found 1 matching row for your request. Example: {preview}."
         return f"I found {row_count} rows for your request. First row preview: {preview}."
+
+    @staticmethod
+    def _infer_domain_hint(table_name: str, active_context: dict[str, Any]) -> str | None:
+        explicit = str(active_context.get("dataset_domain", "")).strip().lower()
+        if explicit:
+            return explicit
+
+        table = str(table_name or "").lower()
+        if "hotel" in table or "booking" in table or "reservation" in table:
+            return "hotel"
+        if "hospital" in table or "patient" in table or "admission" in table:
+            return "hospital"
+        if "order" in table or "retail" in table or "sales" in table:
+            return "retail"
+        if "employee" in table or "payroll" in table or "hr" in table:
+            return "hr"
+        return None
