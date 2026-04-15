@@ -1,0 +1,1 @@
+SELECT arrival_month, SUM(price * quantity) AS total_revenue FROM customer_orders JOIN hotel_reservations ON customer_orders.order_id = hotel_reservations.Booking_ID WHERE arrival_year = '2018' AND booking_status = 'Not_Canceled' GROUP BY arrival_month ORDER BY total_revenue DESC LIMIT 1;

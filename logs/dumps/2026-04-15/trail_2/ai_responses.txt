@@ -1,0 +1,3 @@
+The total sum of no_of_week_nights booked by repeated guests with exactly 0 previous cancellations is 699. This information is based on the data from the hotel_reservations table. The query returned a single row with the calculated sum.
+In 2018, the month of June had the highest total revenue for bookings that were not canceled, with a total revenue of $209,413.21. This information was obtained by analyzing the hotel reservations data for the year 2018. June stood out as the most profitable month for non-canceled bookings based on the average price per room.
+I ran the query, but I couldn't find any data matching your request.

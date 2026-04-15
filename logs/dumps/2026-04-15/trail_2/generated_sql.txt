@@ -1,0 +1,3 @@
+SELECT SUM(no_of_week_nights) FROM hotel_reservations WHERE repeated_guest = '1' AND no_of_previous_cancellations = '0';
+SELECT arrival_month, SUM(avg_price_per_room) AS total_revenue FROM hotel_reservations WHERE arrival_year = '2018' AND booking_status <> 'canceled' GROUP BY arrival_month ORDER BY total_revenue DESC LIMIT 1;
+SELECT arrival_month, SUM(price) AS total_revenue FROM hotel_reservations JOIN customer_orders ON hotel_reservations.Booking_ID = customer_orders.order_id WHERE arrival_year = '2018' AND order_status != 'Canceled' GROUP BY arrival_month ORDER BY total_revenue DESC LIMIT 1;

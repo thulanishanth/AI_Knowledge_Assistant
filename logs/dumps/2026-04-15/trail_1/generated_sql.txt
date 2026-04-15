@@ -1,0 +1,4 @@
+SELECT COUNT(*) FROM hotel_reservations WHERE no_of_weekend_nights > no_of_week_nights;
+SELECT COUNT(*) FROM hotel_reservations WHERE no_of_weekend_nights > no_of_week_nights AND no_of_weekend_nights > 0;
+SELECT arrival_month, SUM(avg_price_per_room) AS total_revenue FROM hotel_reservations WHERE booking_status = 'Not_Canceled' AND arrival_year = '2018' GROUP BY arrival_month ORDER BY total_revenue DESC LIMIT 1;
+None

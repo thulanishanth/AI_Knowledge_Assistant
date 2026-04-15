@@ -1,0 +1,934 @@
+================================================================================
+TIMESTAMP: 2026-04-15T10:29:45.527229+00:00
+--------------------------------------------------------------------------------
+USER QUERY:
+How many hotel reservations have a higher number of weekend nights than week nights?
+--------------------------------------------------------------------------------
+GENERATED SQL (Success (1 rows)):
+SELECT COUNT(*) FROM hotel_reservations WHERE no_of_weekend_nights > no_of_week_nights;
+--------------------------------------------------------------------------------
+AI RESPONSE:
+There are 4775 hotel reservations with a higher number of weekend nights than week nights. This indicates a significant portion of reservations prioritize weekends over weekdays. This data can be useful for understanding booking patterns and optimizing pricing strategies for weekends. The majority of reservations seem to prefer staying longer during weekends compared to weekdays.
+--------------------------------------------------------------------------------
+ISOLATED RAG RULES INJECTED:
+=============================
+DATASET CONTEXT
+=============================
+- Target Dataset: hotel_db
+- Source Type: relational_db
+- Required SQL Dialect: MYSQL
+
+DATABASE SCHEMA:
+Table: chat_messages
+  id
+  user_id
+  session_id
+  role
+  message
+  created_at
+  confidence
+Table: customer_orders
+  order_id
+  customer_name
+  customer_city
+  product_name
+  category
+  price
+  quantity
+  order_date
+  delivery_date
+  payment_method
+  order_status
+  discount
+  rating
+  is_returned
+  shipping_cost
+Table: hotel_reservations
+  Booking_ID
+  no_of_adults
+  no_of_children
+  no_of_weekend_nights
+  no_of_week_nights
+  type_of_meal_plan
+  required_car_parking_space
+  room_type_reserved
+  lead_time
+  arrival_year
+  arrival_month
+  arrival_date
+  market_segment_type
+  repeated_guest
+  no_of_previous_cancellations
+  no_of_previous_bookings_not_canceled
+  avg_price_per_room
+  no_of_special_requests
+  booking_status
+
+SEMANTIC LAYER (Data Meanings):
+- Column 'id' is a unique identifier.
+- Column 'user_id' is categorical with values: ['usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky']
+- Column 'session_id' is categorical with values: ['sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_5841b4c6f2524df4']
+- Column 'role' is categorical with values: ['user', 'assistant', 'user', 'assistant', 'user']
+- Column 'confidence' is categorical with values: ['1.0', '0.8', '0.8', '0.8', '0.8']
+- Column 'order_id' is a unique identifier.
+- Column 'product_name' is categorical with values: ['Laptop', 'Camera', 'Camera', 'Phone', 'Phone']
+- Column 'category' is categorical with values: ['Electronics', 'Electronics', 'Electronics', 'Electronics', 'Electronics']
+- Column 'quantity' is categorical with values: ['5', '4', '5', '5', '4']
+- Column 'order_date' represents temporal/date information.
+- Column 'delivery_date' represents temporal/date information.
+- Column 'payment_method' is categorical with values: ['Card', 'Net Banking', 'UPI', 'UPI', 'Cash']
+- Column 'order_status' is categorical with values: ['Pending', 'Delivered', 'Pending', 'Pending', 'Pending']
+- Column 'is_returned' is categorical with values: ['1', '0', '1', '1', '0']
+- Column 'Booking_ID' is a unique identifier.
+- Column 'no_of_adults' is categorical with values: ['2', '2', '1', '2', '2']
+- Column 'no_of_children' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_weekend_nights' is categorical with values: ['1', '2', '2', '0', '1']
+- Column 'no_of_week_nights' is categorical with values: ['2', '3', '1', '2', '1']
+- Column 'type_of_meal_plan' is categorical with values: ['Meal Plan 1', 'Not Selected', 'Meal Plan 1', 'Meal Plan 1', 'Not Selected']
+- Column 'required_car_parking_space' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'room_type_reserved' is categorical with values: ['Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1']
+- Column 'lead_time' represents temporal/date information.
+- Column 'arrival_year' is categorical with values: ['2017', '2018', '2018', '2018', '2018']
+- Column 'arrival_month' is categorical with values: ['10', '11', '2', '5', '4']
+- Column 'arrival_date' represents temporal/date information.
+- Column 'market_segment_type' is categorical with values: ['Offline', 'Online', 'Online', 'Online', 'Online']
+- Column 'repeated_guest' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_previous_cancellations' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_previous_bookings_not_canceled' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_special_requests' is categorical with values: ['0', '1', '0', '0', '0']
+- Column 'booking_status' is categorical with values: ['Not_Canceled', 'Not_Canceled', 'Canceled', 'Canceled', 'Canceled']
+
+ONTOLOGY & SYNONYMS:
+- 'order_id' is also referred to as: booking, reservation, order
+- 'customer_name' is also referred to as: customer, guest, user, client
+- 'customer_city' is also referred to as: customer, guest, user, client
+- 'price' is also referred to as: price, cost, revenue, amount
+- 'order_date' is also referred to as: booking, reservation, order
+- 'order_status' is also referred to as: booking, reservation, order
+- 'shipping_cost' is also referred to as: price, cost, revenue, amount
+- 'Booking_ID' is also referred to as: booking, reservation, order
+- 'repeated_guest' is also referred to as: customer, guest, user, client
+- 'no_of_previous_bookings_not_canceled' is also referred to as: booking, reservation, order
+- 'avg_price_per_room' is also referred to as: price, cost, revenue, amount
+- 'booking_status' is also referred to as: booking, reservation, order
+
+BUSINESS RULES:
+- CRITICAL: Never apply status filters (like removing canceled/deleted records) if the user explicitly asks for them, asks for 'total number of rows', 'exact count', or 'all records'.
+- Use 'order_date' for time-series filtering and aggregations if the user mentions specific timeframes.
+- Use 'delivery_date' for time-series filtering and aggregations if the user mentions specific timeframes.
+- 'price' is a monetary field. Default to SUM() or AVG() when aggregating.
+- Use 'lead_time' for time-series filtering and aggregations if the user mentions specific timeframes.
+- Use 'arrival_year' for time-series filtering and aggregations if the user mentions specific timeframes.
+- If calculating total duration, ensure 'no_of_weekend_nights' is summed correctly.
+- 'avg_price_per_room' is a monetary field. Default to SUM() or AVG() when aggregating.
+- Use 'arrival_date' for time-series filtering and aggregations if the user mentions specific timeframes.
+- Default to excluding 'booking_status' values like 'Canceled' or 'Deleted' for general revenue queries, UNLESS the user explicitly asks for canceled/deleted data.
+- If calculating total duration, ensure 'no_of_week_nights' is summed correctly.
+- 'shipping_cost' is a monetary field. Default to SUM() or AVG() when aggregating.
+
+SYSTEM CONSTRAINTS:
+- Always LIMIT 10 unless specified
+- Avoid SELECT *
+--------------------------------------------------------------------------------
+FULL PROMPT SENT TO LLM:
+You are a deterministic MySQL SQL generator.
+
+Your job:
+Convert the user's business question into ONE correct SQL query.
+
+Target table:
+chat_messages
+
+Hard rules:
+- Use ONLY this table: chat_messages
+- Use ONLY columns that appear in the schema below
+- Output ONLY SQL
+- No markdown
+- No explanation
+- No comments
+- Only one statement
+- Only SELECT or WITH ... SELECT
+- Do not invent columns, tables, joins, or metrics
+- If the question cannot be answered from the provided schema and business rules, return exactly:
+INSUFFICIENT_CONTEXT
+- Keep the result bounded with LIMIT 10 UNLESS using aggregate functions (COUNT, AVG, SUM, MIN, MAX) without a GROUP BY.
+- Prefer simple, correct SQL over clever SQL
+- When filtering text categories, use exact values only if supported by provided business context
+- If a metric formula is not explicitly defined in the business rules, do not invent it
+
+Schema:
+Target Execution Dialect: MYSQL
+Dataset Name: hotel_db
+Schema Structure:
+
+Table: chat_messages
+  id
+  user_id
+  session_id
+  role
+  message
+  created_at
+  confidence
+
+Table: customer_orders
+  order_id
+  customer_name
+  customer_city
+  product_name
+  category
+  price
+  quantity
+  order_date
+  delivery_date
+  payment_method
+  order_status
+  discount
+  rating
+  is_returned
+  shipping_cost
+
+Table: hotel_reservations
+  Booking_ID
+  no_of_adults
+  no_of_children
+  no_of_weekend_nights
+  no_of_week_nights
+  type_of_meal_plan
+  required_car_parking_space
+  room_type_reserved
+  lead_time
+  arrival_year
+  arrival_month
+  arrival_date
+  market_segment_type
+  repeated_guest
+  no_of_previous_cancellations
+  no_of_previous_bookings_not_canceled
+  avg_price_per_room
+  no_of_special_requests
+  booking_status
+
+Business rules and retrieved knowledge:
+=============================
+DATASET CONTEXT
+=============================
+- Target Dataset: hotel_db
+- Source Type: relational_db
+- Required SQL Dialect: MYSQL
+
+DATABASE SCHEMA:
+Table: chat_messages
+  id
+  user_id
+  session_id
+  role
+  message
+  created_at
+  confidence
+Table: customer_orders
+  order_id
+  customer_name
+  customer_city
+  product_name
+  category
+  price
+  quantity
+  order_date
+  delivery_date
+  payment_method
+  order_status
+  discount
+  rating
+  is_returned
+  shipping_cost
+Table: hotel_reservations
+  Booking_ID
+  no_of_adults
+  no_of_children
+  no_of_weekend_nights
+  no_of_week_nights
+  type_of_meal_plan
+  required_car_parking_space
+  room_type_reserved
+  lead_time
+  arrival_year
+  arrival_month
+  arrival_date
+  market_segment_type
+  repeated_guest
+  no_of_previous_cancellations
+  no_of_previous_bookings_not_canceled
+  avg_price_per_room
+  no_of_special_requests
+  booking_status
+
+SEMANTIC LAYER (Data Meanings):
+- Column 'id' is a unique identifier.
+- Column 'user_id' is categorical with values: ['usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky']
+- Column 'session_id' is categorical with values: ['sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_5841b4c6f2524df4']
+- Column 'role' is categorical with values: ['user', 'assistant', 'user', 'assistant', 'user']
+- Column 'confidence' is categorical with values: ['1.0', '0.8', '0.8', '0.8', '0.8']
+- Column 'order_id' is a unique identifier.
+- Column 'product_name' is categorical with values: ['Laptop', 'Camera', 'Camera', 'Phone', 'Phone']
+- Column 'category' is categorical with values: ['Electronics', 'Electronics', 'Electronics', 'Electronics', 'Electronics']
+- Column 'quantity' is categorical with values: ['5', '4', '5', '5', '4']
+- Column 'order_date' represents temporal/date information.
+- Column 'delivery_date' represents temporal/date information.
+- Column 'payment_method' is categorical with values: ['Card', 'Net Banking', 'UPI', 'UPI', 'Cash']
+- Column 'order_status' is categorical with values: ['Pending', 'Delivered', 'Pending', 'Pending', 'Pending']
+- Column 'is_returned' is categorical with values: ['1', '0', '1', '1', '0']
+- Column 'Booking_ID' is a unique identifier.
+- Column 'no_of_adults' is categorical with values: ['2', '2', '1', '2', '2']
+- Column 'no_of_children' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_weekend_nights' is categorical with values: ['1', '2', '2', '0', '1']
+- Column 'no_of_week_nights' is categorical with values: ['2', '3', '1', '2', '1']
+- Column 'type_of_meal_plan' is categorical with values: ['Meal Plan 1', 'Not Selected', 'Meal Plan 1', 'Meal Plan 1', 'Not Selected']
+- Column 'required_car_parking_space' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'room_type_reserved' is categorical with values: ['Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1']
+- Column 'lead_time' represents temporal/date information.
+- Column 'arrival_year' is categorical with values: ['2017', '2018', '2018', '2018', '2018']
+- Column 'arrival_month' is categorical with values: ['10', '11', '2', '5', '4']
+- Column 'arrival_date' represents temporal/date information.
+- Column 'market_segment_type' is categorical with values: ['Offline', 'Online', 'Online', 'Online', 'Online']
+- Column 'repeated_guest' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_previous_cancellations' is categorica
+
+Relevant examples:
+(none)
+
+User question:
+How many hotel reservations have a higher number of weekend nights than week nights?
+
+Output:
+SQL only
+================================================================================
+
+================================================================================
+TIMESTAMP: 2026-04-15T10:30:33.955908+00:00
+--------------------------------------------------------------------------------
+USER QUERY:
+How many hotel reservations have a higher number of weekend nights than week nights excluding those with 0 weekend nights?
+--------------------------------------------------------------------------------
+GENERATED SQL (Success (1 rows)):
+SELECT COUNT(*) FROM hotel_reservations WHERE no_of_weekend_nights > no_of_week_nights AND no_of_weekend_nights > 0;
+--------------------------------------------------------------------------------
+AI RESPONSE:
+There are 4775 hotel reservations with a higher number of weekend nights than week nights, excluding those with 0 weekend nights. This indicates a significant number of reservations where guests prefer staying more on weekends than weekdays. This data can be useful for hotels to understand booking patterns and adjust pricing or promotions accordingly. It shows a clear preference for weekend stays among the guests making reservations.
+--------------------------------------------------------------------------------
+ISOLATED RAG RULES INJECTED:
+=============================
+DATASET CONTEXT
+=============================
+- Target Dataset: hotel_db
+- Source Type: relational_db
+- Required SQL Dialect: MYSQL
+
+DATABASE SCHEMA:
+Table: chat_messages
+  id
+  user_id
+  session_id
+  role
+  message
+  created_at
+  confidence
+Table: customer_orders
+  order_id
+  customer_name
+  customer_city
+  product_name
+  category
+  price
+  quantity
+  order_date
+  delivery_date
+  payment_method
+  order_status
+  discount
+  rating
+  is_returned
+  shipping_cost
+Table: hotel_reservations
+  Booking_ID
+  no_of_adults
+  no_of_children
+  no_of_weekend_nights
+  no_of_week_nights
+  type_of_meal_plan
+  required_car_parking_space
+  room_type_reserved
+  lead_time
+  arrival_year
+  arrival_month
+  arrival_date
+  market_segment_type
+  repeated_guest
+  no_of_previous_cancellations
+  no_of_previous_bookings_not_canceled
+  avg_price_per_room
+  no_of_special_requests
+  booking_status
+
+SEMANTIC LAYER (Data Meanings):
+- Column 'id' is a unique identifier.
+- Column 'user_id' is categorical with values: ['usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky']
+- Column 'session_id' is categorical with values: ['sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_5841b4c6f2524df4']
+- Column 'role' is categorical with values: ['user', 'assistant', 'user', 'assistant', 'user']
+- Column 'confidence' is categorical with values: ['1.0', '0.8', '0.8', '0.8', '0.8']
+- Column 'order_id' is a unique identifier.
+- Column 'product_name' is categorical with values: ['Laptop', 'Camera', 'Camera', 'Phone', 'Phone']
+- Column 'category' is categorical with values: ['Electronics', 'Electronics', 'Electronics', 'Electronics', 'Electronics']
+- Column 'quantity' is categorical with values: ['5', '4', '5', '5', '4']
+- Column 'order_date' represents temporal/date information.
+- Column 'delivery_date' represents temporal/date information.
+- Column 'payment_method' is categorical with values: ['Card', 'Net Banking', 'UPI', 'UPI', 'Cash']
+- Column 'order_status' is categorical with values: ['Pending', 'Delivered', 'Pending', 'Pending', 'Pending']
+- Column 'is_returned' is categorical with values: ['1', '0', '1', '1', '0']
+- Column 'Booking_ID' is a unique identifier.
+- Column 'no_of_adults' is categorical with values: ['2', '2', '1', '2', '2']
+- Column 'no_of_children' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_weekend_nights' is categorical with values: ['1', '2', '2', '0', '1']
+- Column 'no_of_week_nights' is categorical with values: ['2', '3', '1', '2', '1']
+- Column 'type_of_meal_plan' is categorical with values: ['Meal Plan 1', 'Not Selected', 'Meal Plan 1', 'Meal Plan 1', 'Not Selected']
+- Column 'required_car_parking_space' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'room_type_reserved' is categorical with values: ['Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1']
+- Column 'lead_time' represents temporal/date information.
+- Column 'arrival_year' is categorical with values: ['2017', '2018', '2018', '2018', '2018']
+- Column 'arrival_month' is categorical with values: ['10', '11', '2', '5', '4']
+- Column 'arrival_date' represents temporal/date information.
+- Column 'market_segment_type' is categorical with values: ['Offline', 'Online', 'Online', 'Online', 'Online']
+- Column 'repeated_guest' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_previous_cancellations' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_previous_bookings_not_canceled' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_special_requests' is categorical with values: ['0', '1', '0', '0', '0']
+- Column 'booking_status' is categorical with values: ['Not_Canceled', 'Not_Canceled', 'Canceled', 'Canceled', 'Canceled']
+
+ONTOLOGY & SYNONYMS:
+- 'order_id' is also referred to as: booking, reservation, order
+- 'customer_name' is also referred to as: customer, guest, user, client
+- 'customer_city' is also referred to as: customer, guest, user, client
+- 'price' is also referred to as: price, cost, revenue, amount
+- 'order_date' is also referred to as: booking, reservation, order
+- 'order_status' is also referred to as: booking, reservation, order
+- 'shipping_cost' is also referred to as: price, cost, revenue, amount
+- 'Booking_ID' is also referred to as: booking, reservation, order
+- 'repeated_guest' is also referred to as: customer, guest, user, client
+- 'no_of_previous_bookings_not_canceled' is also referred to as: booking, reservation, order
+- 'avg_price_per_room' is also referred to as: price, cost, revenue, amount
+- 'booking_status' is also referred to as: booking, reservation, order
+
+BUSINESS RULES:
+- CRITICAL: Never apply status filters (like removing canceled/deleted records) if the user explicitly asks for them, asks for 'total number of rows', 'exact count', or 'all records'.
+- Use 'order_date' for time-series filtering and aggregations if the user mentions specific timeframes.
+- Use 'delivery_date' for time-series filtering and aggregations if the user mentions specific timeframes.
+- 'price' is a monetary field. Default to SUM() or AVG() when aggregating.
+- Use 'lead_time' for time-series filtering and aggregations if the user mentions specific timeframes.
+- Use 'arrival_year' for time-series filtering and aggregations if the user mentions specific timeframes.
+- If calculating total duration, ensure 'no_of_weekend_nights' is summed correctly.
+- 'avg_price_per_room' is a monetary field. Default to SUM() or AVG() when aggregating.
+- Use 'arrival_date' for time-series filtering and aggregations if the user mentions specific timeframes.
+- Default to excluding 'booking_status' values like 'Canceled' or 'Deleted' for general revenue queries, UNLESS the user explicitly asks for canceled/deleted data.
+- If calculating total duration, ensure 'no_of_week_nights' is summed correctly.
+- 'shipping_cost' is a monetary field. Default to SUM() or AVG() when aggregating.
+
+SYSTEM CONSTRAINTS:
+- Always LIMIT 10 unless specified
+- Avoid SELECT *
+--------------------------------------------------------------------------------
+FULL PROMPT SENT TO LLM:
+You are a deterministic MySQL SQL generator.
+
+Your job:
+Convert the user's business question into ONE correct SQL query.
+
+Target table:
+chat_messages
+
+Hard rules:
+- Use ONLY this table: chat_messages
+- Use ONLY columns that appear in the schema below
+- Output ONLY SQL
+- No markdown
+- No explanation
+- No comments
+- Only one statement
+- Only SELECT or WITH ... SELECT
+- Do not invent columns, tables, joins, or metrics
+- If the question cannot be answered from the provided schema and business rules, return exactly:
+INSUFFICIENT_CONTEXT
+- Keep the result bounded with LIMIT 10 UNLESS using aggregate functions (COUNT, AVG, SUM, MIN, MAX) without a GROUP BY.
+- Prefer simple, correct SQL over clever SQL
+- When filtering text categories, use exact values only if supported by provided business context
+- If a metric formula is not explicitly defined in the business rules, do not invent it
+
+Schema:
+Target Execution Dialect: MYSQL
+Dataset Name: hotel_db
+Schema Structure:
+
+Table: chat_messages
+  id
+  user_id
+  session_id
+  role
+  message
+  created_at
+  confidence
+
+Table: customer_orders
+  order_id
+  customer_name
+  customer_city
+  product_name
+  category
+  price
+  quantity
+  order_date
+  delivery_date
+  payment_method
+  order_status
+  discount
+  rating
+  is_returned
+  shipping_cost
+
+Table: hotel_reservations
+  Booking_ID
+  no_of_adults
+  no_of_children
+  no_of_weekend_nights
+  no_of_week_nights
+  type_of_meal_plan
+  required_car_parking_space
+  room_type_reserved
+  lead_time
+  arrival_year
+  arrival_month
+  arrival_date
+  market_segment_type
+  repeated_guest
+  no_of_previous_cancellations
+  no_of_previous_bookings_not_canceled
+  avg_price_per_room
+  no_of_special_requests
+  booking_status
+
+Business rules and retrieved knowledge:
+=============================
+DATASET CONTEXT
+=============================
+- Target Dataset: hotel_db
+- Source Type: relational_db
+- Required SQL Dialect: MYSQL
+
+DATABASE SCHEMA:
+Table: chat_messages
+  id
+  user_id
+  session_id
+  role
+  message
+  created_at
+  confidence
+Table: customer_orders
+  order_id
+  customer_name
+  customer_city
+  product_name
+  category
+  price
+  quantity
+  order_date
+  delivery_date
+  payment_method
+  order_status
+  discount
+  rating
+  is_returned
+  shipping_cost
+Table: hotel_reservations
+  Booking_ID
+  no_of_adults
+  no_of_children
+  no_of_weekend_nights
+  no_of_week_nights
+  type_of_meal_plan
+  required_car_parking_space
+  room_type_reserved
+  lead_time
+  arrival_year
+  arrival_month
+  arrival_date
+  market_segment_type
+  repeated_guest
+  no_of_previous_cancellations
+  no_of_previous_bookings_not_canceled
+  avg_price_per_room
+  no_of_special_requests
+  booking_status
+
+SEMANTIC LAYER (Data Meanings):
+- Column 'id' is a unique identifier.
+- Column 'user_id' is categorical with values: ['usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky']
+- Column 'session_id' is categorical with values: ['sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_5841b4c6f2524df4']
+- Column 'role' is categorical with values: ['user', 'assistant', 'user', 'assistant', 'user']
+- Column 'confidence' is categorical with values: ['1.0', '0.8', '0.8', '0.8', '0.8']
+- Column 'order_id' is a unique identifier.
+- Column 'product_name' is categorical with values: ['Laptop', 'Camera', 'Camera', 'Phone', 'Phone']
+- Column 'category' is categorical with values: ['Electronics', 'Electronics', 'Electronics', 'Electronics', 'Electronics']
+- Column 'quantity' is categorical with values: ['5', '4', '5', '5', '4']
+- Column 'order_date' represents temporal/date information.
+- Column 'delivery_date' represents temporal/date information.
+- Column 'payment_method' is categorical with values: ['Card', 'Net Banking', 'UPI', 'UPI', 'Cash']
+- Column 'order_status' is categorical with values: ['Pending', 'Delivered', 'Pending', 'Pending', 'Pending']
+- Column 'is_returned' is categorical with values: ['1', '0', '1', '1', '0']
+- Column 'Booking_ID' is a unique identifier.
+- Column 'no_of_adults' is categorical with values: ['2', '2', '1', '2', '2']
+- Column 'no_of_children' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_weekend_nights' is categorical with values: ['1', '2', '2', '0', '1']
+- Column 'no_of_week_nights' is categorical with values: ['2', '3', '1', '2', '1']
+- Column 'type_of_meal_plan' is categorical with values: ['Meal Plan 1', 'Not Selected', 'Meal Plan 1', 'Meal Plan 1', 'Not Selected']
+- Column 'required_car_parking_space' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'room_type_reserved' is categorical with values: ['Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1']
+- Column 'lead_time' represents temporal/date information.
+- Column 'arrival_year' is categorical with values: ['2017', '2018', '2018', '2018', '2018']
+- Column 'arrival_month' is categorical with values: ['10', '11', '2', '5', '4']
+- Column 'arrival_date' represents temporal/date information.
+- Column 'market_segment_type' is categorical with values: ['Offline', 'Online', 'Online', 'Online', 'Online']
+- Column 'repeated_guest' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_previous_cancellations' is categorica
+
+Relevant examples:
+(none)
+
+User question:
+How many hotel reservations have a higher number of weekend nights than week nights excluding those with 0 weekend nights?
+
+Output:
+SQL only
+================================================================================
+
+================================================================================
+TIMESTAMP: 2026-04-15T10:37:19.041223+00:00
+--------------------------------------------------------------------------------
+USER QUERY:
+In 2018, which arrival month generated the highest total approximate revenue for Not_Canceled bookings?
+--------------------------------------------------------------------------------
+GENERATED SQL (Success (1 rows)):
+SELECT arrival_month, SUM(avg_price_per_room) AS total_revenue FROM hotel_reservations WHERE booking_status = 'Not_Canceled' AND arrival_year = '2018' GROUP BY arrival_month ORDER BY total_revenue DESC LIMIT 1;
+--------------------------------------------------------------------------------
+AI RESPONSE:
+In 2018, the month of June generated the highest total approximate revenue for Not_Canceled bookings in the hotel reservations data. The total revenue for June was $209,413.21, making it the top revenue-generating month for that year. This information is based on the data provided and the query executed to analyze it.
+--------------------------------------------------------------------------------
+ISOLATED RAG RULES INJECTED:
+=============================
+DATASET CONTEXT
+=============================
+- Target Dataset: hotel_db
+- Source Type: relational_db
+- Required SQL Dialect: MYSQL
+
+DATABASE SCHEMA:
+Table: chat_messages
+  id
+  user_id
+  session_id
+  role
+  message
+  created_at
+  confidence
+Table: customer_orders
+  order_id
+  customer_name
+  customer_city
+  product_name
+  category
+  price
+  quantity
+  order_date
+  delivery_date
+  payment_method
+  order_status
+  discount
+  rating
+  is_returned
+  shipping_cost
+Table: hotel_reservations
+  Booking_ID
+  no_of_adults
+  no_of_children
+  no_of_weekend_nights
+  no_of_week_nights
+  type_of_meal_plan
+  required_car_parking_space
+  room_type_reserved
+  lead_time
+  arrival_year
+  arrival_month
+  arrival_date
+  market_segment_type
+  repeated_guest
+  no_of_previous_cancellations
+  no_of_previous_bookings_not_canceled
+  avg_price_per_room
+  no_of_special_requests
+  booking_status
+
+SEMANTIC LAYER (Data Meanings):
+- Column 'id' is a unique identifier.
+- Column 'user_id' is categorical with values: ['usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky']
+- Column 'session_id' is categorical with values: ['sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_5841b4c6f2524df4']
+- Column 'role' is categorical with values: ['user', 'assistant', 'user', 'assistant', 'user']
+- Column 'confidence' is categorical with values: ['1.0', '0.8', '0.8', '0.8', '0.8']
+- Column 'order_id' is a unique identifier.
+- Column 'product_name' is categorical with values: ['Laptop', 'Camera', 'Camera', 'Phone', 'Phone']
+- Column 'category' is categorical with values: ['Electronics', 'Electronics', 'Electronics', 'Electronics', 'Electronics']
+- Column 'quantity' is categorical with values: ['5', '4', '5', '5', '4']
+- Column 'order_date' represents temporal/date information.
+- Column 'delivery_date' represents temporal/date information.
+- Column 'payment_method' is categorical with values: ['Card', 'Net Banking', 'UPI', 'UPI', 'Cash']
+- Column 'order_status' is categorical with values: ['Pending', 'Delivered', 'Pending', 'Pending', 'Pending']
+- Column 'is_returned' is categorical with values: ['1', '0', '1', '1', '0']
+- Column 'Booking_ID' is a unique identifier.
+- Column 'no_of_adults' is categorical with values: ['2', '2', '1', '2', '2']
+- Column 'no_of_children' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_weekend_nights' is categorical with values: ['1', '2', '2', '0', '1']
+- Column 'no_of_week_nights' is categorical with values: ['2', '3', '1', '2', '1']
+- Column 'type_of_meal_plan' is categorical with values: ['Meal Plan 1', 'Not Selected', 'Meal Plan 1', 'Meal Plan 1', 'Not Selected']
+- Column 'required_car_parking_space' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'room_type_reserved' is categorical with values: ['Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1']
+- Column 'lead_time' represents temporal/date information.
+- Column 'arrival_year' is categorical with values: ['2017', '2018', '2018', '2018', '2018']
+- Column 'arrival_month' is categorical with values: ['10', '11', '2', '5', '4']
+- Column 'arrival_date' represents temporal/date information.
+- Column 'market_segment_type' is categorical with values: ['Offline', 'Online', 'Online', 'Online', 'Online']
+- Column 'repeated_guest' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_previous_cancellations' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_previous_bookings_not_canceled' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_special_requests' is categorical with values: ['0', '1', '0', '0', '0']
+- Column 'booking_status' is categorical with values: ['Not_Canceled', 'Not_Canceled', 'Canceled', 'Canceled', 'Canceled']
+
+ONTOLOGY & SYNONYMS:
+- 'order_id' is also referred to as: booking, reservation, order
+- 'customer_name' is also referred to as: customer, guest, user, client
+- 'customer_city' is also referred to as: customer, guest, user, client
+- 'price' is also referred to as: price, cost, revenue, amount
+- 'order_date' is also referred to as: booking, reservation, order
+- 'order_status' is also referred to as: booking, reservation, order
+- 'shipping_cost' is also referred to as: price, cost, revenue, amount
+- 'Booking_ID' is also referred to as: booking, reservation, order
+- 'repeated_guest' is also referred to as: customer, guest, user, client
+- 'no_of_previous_bookings_not_canceled' is also referred to as: booking, reservation, order
+- 'avg_price_per_room' is also referred to as: price, cost, revenue, amount
+- 'booking_status' is also referred to as: booking, reservation, order
+
+BUSINESS RULES:
+- CRITICAL: Never apply status filters (like removing canceled/deleted records) if the user explicitly asks for them, asks for 'total number of rows', 'exact count', or 'all records'.
+- Use 'order_date' for time-series filtering and aggregations if the user mentions specific timeframes.
+- Use 'delivery_date' for time-series filtering and aggregations if the user mentions specific timeframes.
+- 'price' is a monetary field. Default to SUM() or AVG() when aggregating.
+- Use 'lead_time' for time-series filtering and aggregations if the user mentions specific timeframes.
+- Use 'arrival_year' for time-series filtering and aggregations if the user mentions specific timeframes.
+- If calculating total duration, ensure 'no_of_weekend_nights' is summed correctly.
+- 'avg_price_per_room' is a monetary field. Default to SUM() or AVG() when aggregating.
+- Use 'arrival_date' for time-series filtering and aggregations if the user mentions specific timeframes.
+- Default to excluding 'booking_status' values like 'Canceled' or 'Deleted' for general revenue queries, UNLESS the user explicitly asks for canceled/deleted data.
+- If calculating total duration, ensure 'no_of_week_nights' is summed correctly.
+- 'shipping_cost' is a monetary field. Default to SUM() or AVG() when aggregating.
+
+SYSTEM CONSTRAINTS:
+- Always LIMIT 10 unless specified
+- Avoid SELECT *
+--------------------------------------------------------------------------------
+FULL PROMPT SENT TO LLM:
+You are a deterministic MySQL SQL generator.
+
+Your job:
+Convert the user's business question into ONE correct SQL query.
+
+Target table:
+chat_messages
+
+Hard rules:
+- Use ONLY this table: chat_messages
+- Use ONLY columns that appear in the schema below
+- Output ONLY SQL
+- No markdown
+- No explanation
+- No comments
+- Only one statement
+- Only SELECT or WITH ... SELECT
+- Do not invent columns, tables, joins, or metrics
+- If the question cannot be answered from the provided schema and business rules, return exactly:
+INSUFFICIENT_CONTEXT
+- Keep the result bounded with LIMIT 10 UNLESS using aggregate functions (COUNT, AVG, SUM, MIN, MAX) without a GROUP BY.
+- Prefer simple, correct SQL over clever SQL
+- When filtering text categories, use exact values only if supported by provided business context
+- If a metric formula is not explicitly defined in the business rules, do not invent it
+
+Schema:
+Target Execution Dialect: MYSQL
+Dataset Name: hotel_db
+Schema Structure:
+
+Table: chat_messages
+  id
+  user_id
+  session_id
+  role
+  message
+  created_at
+  confidence
+
+Table: customer_orders
+  order_id
+  customer_name
+  customer_city
+  product_name
+  category
+  price
+  quantity
+  order_date
+  delivery_date
+  payment_method
+  order_status
+  discount
+  rating
+  is_returned
+  shipping_cost
+
+Table: hotel_reservations
+  Booking_ID
+  no_of_adults
+  no_of_children
+  no_of_weekend_nights
+  no_of_week_nights
+  type_of_meal_plan
+  required_car_parking_space
+  room_type_reserved
+  lead_time
+  arrival_year
+  arrival_month
+  arrival_date
+  market_segment_type
+  repeated_guest
+  no_of_previous_cancellations
+  no_of_previous_bookings_not_canceled
+  avg_price_per_room
+  no_of_special_requests
+  booking_status
+
+Business rules and retrieved knowledge:
+=============================
+DATASET CONTEXT
+=============================
+- Target Dataset: hotel_db
+- Source Type: relational_db
+- Required SQL Dialect: MYSQL
+
+DATABASE SCHEMA:
+Table: chat_messages
+  id
+  user_id
+  session_id
+  role
+  message
+  created_at
+  confidence
+Table: customer_orders
+  order_id
+  customer_name
+  customer_city
+  product_name
+  category
+  price
+  quantity
+  order_date
+  delivery_date
+  payment_method
+  order_status
+  discount
+  rating
+  is_returned
+  shipping_cost
+Table: hotel_reservations
+  Booking_ID
+  no_of_adults
+  no_of_children
+  no_of_weekend_nights
+  no_of_week_nights
+  type_of_meal_plan
+  required_car_parking_space
+  room_type_reserved
+  lead_time
+  arrival_year
+  arrival_month
+  arrival_date
+  market_segment_type
+  repeated_guest
+  no_of_previous_cancellations
+  no_of_previous_bookings_not_canceled
+  avg_price_per_room
+  no_of_special_requests
+  booking_status
+
+SEMANTIC LAYER (Data Meanings):
+- Column 'id' is a unique identifier.
+- Column 'user_id' is categorical with values: ['usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky']
+- Column 'session_id' is categorical with values: ['sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_5841b4c6f2524df4']
+- Column 'role' is categorical with values: ['user', 'assistant', 'user', 'assistant', 'user']
+- Column 'confidence' is categorical with values: ['1.0', '0.8', '0.8', '0.8', '0.8']
+- Column 'order_id' is a unique identifier.
+- Column 'product_name' is categorical with values: ['Laptop', 'Camera', 'Camera', 'Phone', 'Phone']
+- Column 'category' is categorical with values: ['Electronics', 'Electronics', 'Electronics', 'Electronics', 'Electronics']
+- Column 'quantity' is categorical with values: ['5', '4', '5', '5', '4']
+- Column 'order_date' represents temporal/date information.
+- Column 'delivery_date' represents temporal/date information.
+- Column 'payment_method' is categorical with values: ['Card', 'Net Banking', 'UPI', 'UPI', 'Cash']
+- Column 'order_status' is categorical with values: ['Pending', 'Delivered', 'Pending', 'Pending', 'Pending']
+- Column 'is_returned' is categorical with values: ['1', '0', '1', '1', '0']
+- Column 'Booking_ID' is a unique identifier.
+- Column 'no_of_adults' is categorical with values: ['2', '2', '1', '2', '2']
+- Column 'no_of_children' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_weekend_nights' is categorical with values: ['1', '2', '2', '0', '1']
+- Column 'no_of_week_nights' is categorical with values: ['2', '3', '1', '2', '1']
+- Column 'type_of_meal_plan' is categorical with values: ['Meal Plan 1', 'Not Selected', 'Meal Plan 1', 'Meal Plan 1', 'Not Selected']
+- Column 'required_car_parking_space' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'room_type_reserved' is categorical with values: ['Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1']
+- Column 'lead_time' represents temporal/date information.
+- Column 'arrival_year' is categorical with values: ['2017', '2018', '2018', '2018', '2018']
+- Column 'arrival_month' is categorical with values: ['10', '11', '2', '5', '4']
+- Column 'arrival_date' represents temporal/date information.
+- Column 'market_segment_type' is categorical with values: ['Offline', 'Online', 'Online', 'Online', 'Online']
+- Column 'repeated_guest' is categorical with values: ['0', '0', '0', '0', '0']
+- Column 'no_of_previous_cancellations' is categorica
+
+Relevant examples:
+(none)
+
+User question:
+In 2018, which arrival month generated the highest total approximate revenue for Not_Canceled bookings?
+
+Output:
+SQL only
+================================================================================
+
+================================================================================
+TIMESTAMP: 2026-04-15T10:38:27.255906+00:00
+--------------------------------------------------------------------------------
+USER QUERY:
+what about october month
+--------------------------------------------------------------------------------
+GENERATED SQL ():
+None
+--------------------------------------------------------------------------------
+AI RESPONSE:
+Could you provide a bit more detail so I can query the right data?
+--------------------------------------------------------------------------------
+ISOLATED RAG RULES INJECTED:
+None
+--------------------------------------------------------------------------------
+FULL PROMPT SENT TO LLM:
+None
+================================================================================
+

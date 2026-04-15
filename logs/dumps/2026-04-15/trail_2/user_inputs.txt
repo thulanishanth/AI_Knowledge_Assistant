@@ -1,0 +1,3 @@
+What is the total sum of no_of_week_nights booked by repeated guests who have exactly 0 previous cancellations?
+In 2018, which month had the highest total revenue for bookings that were not canceled?
+In 2018, which month had the highest total revenue for bookings that were not canceled?

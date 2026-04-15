@@ -1,0 +1,4 @@
+How many hotel reservations have a higher number of weekend nights than week nights?
+How many hotel reservations have a higher number of weekend nights than week nights excluding those with 0 weekend nights?
+In 2018, which arrival month generated the highest total approximate revenue for Not_Canceled bookings?
+what about october month
