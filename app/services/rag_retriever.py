@@ -1,154 +1,92 @@
-#app/services/rag_retriever.py
-"""Dynamic RAG schema-context retrieval from live MySQL metadata."""
+# app/services/rag_retriever.py
+"""Local RAG context retrieval from project schema and semantic assets."""
 
 from __future__ import annotations
 
-from mysql.connector import Error
+import json
+from pathlib import Path
+from typing import Any
 
 from app.core.logging import get_logger
 from app.core.settings import settings
-from app.infrastructure.mysql_pool import create_db_connection
 
 logger = get_logger(__name__)
 
-_TEXT_TYPES = {"char", "varchar", "text", "tinytext", "mediumtext", "longtext"}
+_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+_BUSINESS_CONTEXT_PATH = _DATA_DIR / "business_context.json"
 
 
-def _build_schema_fallback() -> str:
-    """Return a clean minimal fallback context."""
-    return "\n".join(
-        [
-            f"Active Database: {settings.db_name}",
-            f"Target Table: {settings.db_table}",
-            "Schema Status: unavailable",
-        ]
-    )
+def _load_business_context() -> dict[str, Any]:
+    if not _BUSINESS_CONTEXT_PATH.exists():
+        logger.warning(f"Context file not found at {_BUSINESS_CONTEXT_PATH}")
+        return {}
 
-
-def _fetch_columns(cursor) -> list[tuple[str, str]]:
-    """Fetch ordered column names and data types for the configured table."""
-    cursor.execute(
-        """
-        SELECT column_name, data_type
-        FROM information_schema.columns
-        WHERE table_schema = %s AND table_name = %s
-        ORDER BY ordinal_position
-        """,
-        (settings.db_name, settings.db_table),
-    )
-    rows = cursor.fetchall()
-    columns: list[tuple[str, str]] = []
-
-    for row in rows:
-        if isinstance(row, (tuple, list)) and len(row) >= 2:
-            col_name, data_type = row[0], row[1]
-        elif isinstance(row, dict):
-            col_name = row.get("column_name") or row.get("COLUMN_NAME")
-            data_type = row.get("data_type") or row.get("DATA_TYPE")
-        else:
-            continue
-
-        if col_name and data_type:
-            columns.append((str(col_name), str(data_type).lower()))
-
-    return columns
-
-
-def _fetch_sample_values(cursor, columns: list[tuple[str, str]]) -> list[str]:
-    """Fetch a few representative values from text-like columns."""
-    text_columns = [name for name, data_type in columns if data_type in _TEXT_TYPES]
-    if not text_columns:
-        return []
-
-    chosen_columns = text_columns[:3]
-    select_parts = []
-    for column in chosen_columns:
-        select_parts.append(
-            f"NULLIF(TRIM(CAST(`{column}` AS CHAR)), '') AS `{column}`"
-        )
-
-    query = f"""
-        SELECT {", ".join(select_parts)}
-        FROM `{settings.db_table}`
-        LIMIT 5
-    """
-    cursor.execute(query)
-    rows = cursor.fetchall()
-
-    samples: list[str] = []
-    for row in rows:
-        values = []
-        if isinstance(row, dict):
-            for column in chosen_columns:
-                value = row.get(column)
-                if value:
-                    values.append(f"{column}={value}")
-        elif isinstance(row, (tuple, list)):
-            for column, value in zip(chosen_columns, row):
-                if value:
-                    values.append(f"{column}={value}")
-
-        if values:
-            samples.append(", ".join(values))
-
-    return samples
+    try:
+        return json.loads(_BUSINESS_CONTEXT_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Failed to load local business context: %s", exc)
+        return {}
 
 
 def retrieve_dynamic_rag_context() -> str:
-    """Build schema-aware database context dynamically from live metadata."""
-    connection = None
-    cursor = None
+    """Build schema-aware context from local schema and rich semantic JSON assets."""
+    business_context = _load_business_context()
+    
+    if not business_context:
+        return "Warning: No business context found. Operating with default assumptions."
 
-    try:
-        connection = create_db_connection()
-        if connection is None:
-            logger.warning("Could not create DB connection for RAG context.")
-            return _build_schema_fallback()
+    # 1. Core Metadata
+    dataset = str(business_context.get("dataset", settings.db_table)).strip()
+    source_type = str(business_context.get("source_type", "relational_db")).strip()
+    dialect = str(business_context.get("target_dialect", "unknown")).strip()
 
-        cursor = connection.cursor(dictionary=True)
+    sections = [
+        "=============================\n"
+        "DATASET CONTEXT\n"
+        "=============================\n"
+        f"- Target Dataset: {dataset}\n"
+        f"- Source Type: {source_type}\n"
+        f"- Required SQL Dialect: {dialect.upper()}"
+    ]
 
-        columns = _fetch_columns(cursor)
-        if not columns:
-            logger.warning("No schema columns found for configured table.")
-            return _build_schema_fallback()
+    # 2. Dynamic Schema
+    schema_dict = business_context.get("schema", {})
+    if schema_dict:
+        schema_lines = []
+        for table, cols in schema_dict.items():
+            schema_lines.append(f"Table: {table}")
+            schema_lines.extend(f"  {col}" for col in cols)
+        sections.append("DATABASE SCHEMA:\n" + "\n".join(schema_lines))
 
-        schema_lines = [
-            f"- {column_name} ({data_type})"
-            for column_name, data_type in columns
+    # 3. Semantic Layer
+    semantic_layer = [
+        str(item).strip() for item in business_context.get("semantic_layer", []) if str(item).strip()
+    ]
+    if semantic_layer:
+        sections.append("SEMANTIC LAYER (Data Meanings):\n" + "\n".join(f"- {item}" for item in semantic_layer))
+
+    # 4. Ontology (Synonyms mapping)
+    ontology = business_context.get("ontology", {})
+    if ontology:
+        ont_lines = [
+            f"- '{col}' is also referred to as: {', '.join(synonyms)}" 
+            for col, synonyms in ontology.items() if synonyms
         ]
+        if ont_lines:
+            sections.append("ONTOLOGY & SYNONYMS:\n" + "\n".join(ont_lines))
 
-        sample_values = _fetch_sample_values(cursor, columns)
+    # 5. Business Rules
+    business_rules = [
+        str(item).strip() for item in business_context.get("business_rules", []) if str(item).strip()
+    ]
+    if business_rules:
+        sections.append("BUSINESS RULES:\n" + "\n".join(f"- {item}" for item in business_rules))
 
-        sections = [
-            f"Active Database: {settings.db_name}",
-            f"Target Table: {settings.db_table}",
-            "Schema:",
-            *schema_lines,
-        ]
+    # 6. Hard Constraints
+    constraints = [
+        str(item).strip() for item in business_context.get("constraints", []) if str(item).strip()
+    ]
+    if constraints:
+        sections.append("SYSTEM CONSTRAINTS:\n" + "\n".join(f"- {item}" for item in constraints))
 
-        if sample_values:
-            sections.extend(
-                [
-                    "",
-                    "Sample Values:",
-                    *[f"- {sample}" for sample in sample_values],
-                ]
-            )
-
-        context = "\n".join(sections)
-        logger.info(
-            "Dynamic RAG context built successfully with %d columns.", len(columns)
-        )
-        return context
-
-    except Error as exc:
-        logger.warning("Failed to retrieve dynamic RAG context: %s", exc)
-        return _build_schema_fallback()
-    except Exception as exc:
-        logger.exception("Unexpected error while building dynamic RAG context: %s", exc)
-        return _build_schema_fallback()
-    finally:
-        if cursor is not None:
-            cursor.close()
-        if connection is not None and connection.is_connected():
-            connection.close()
+    return "\n\n".join(section for section in sections if section.strip())

@@ -1,5 +1,5 @@
 #app/services/llm_client.py
-"""LLM client wrapper wired to the OpenAI-compatible API (Groq)."""
+"""LLM client wrapper wired to the OpenAI API."""
 
 import time
 import os
@@ -17,15 +17,13 @@ def _get_client() -> OpenAI:
     """Lazily initialize the OpenAI client using environment variables."""
     global _client
     if _client is None:
-        # Fetch directly from os.environ
-        base_url = os.getenv("OPENAI_BASE_URL", "https://api.groq.com/openai/v1")
         api_key = os.getenv("OPENAI_API_KEY")
         
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is not configured in your .env file.")
             
+        # Initialize without a custom base_url to default to official OpenAI endpoints
         _client = OpenAI(
-            base_url=base_url,
             api_key=api_key,
         )
     return _client
@@ -37,7 +35,7 @@ def call_llm(
     max_retries: int | None = None,
     temperature: float | None = None,
 ) -> str:
-    """Generate LLM output using an OpenAI-compatible endpoint (Groq) with retries."""
+    """Generate LLM output using the OpenAI endpoint with retries."""
     if not prompt or not prompt.strip():
         raise ValueError("Prompt cannot be empty.")
         
@@ -45,7 +43,8 @@ def call_llm(
     temp = settings.llm_temperature_sql if temperature is None else temperature
 
     client = _get_client()
-    model_name = os.getenv("OPENAI_MODEL", "llama-3.3-70b-versatile")
+    # Updated default to an official OpenAI model
+    model_name = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
 
     for attempt in range(retries):
         try:
@@ -71,9 +70,9 @@ def call_llm(
             if "401" in error_text or "unauthorized" in error_text or "invalid_api_key" in error_text:
                 raise RuntimeError("Your API key is invalid. Please check your .env file.") from e
             
-            # Handle Groq's specific Rate Limit errors (429)
+            # Handle OpenAI's specific Rate Limit errors (429)
             if "429" in error_text or "too many requests" in error_text:
-                logger.warning("Groq rate limit hit. Waiting a bit longer...")
+                logger.warning("OpenAI rate limit hit. Waiting a bit longer...")
                 time.sleep(5) # Wait an extra 5 seconds if we hit the limit
             
             if attempt < retries - 1:

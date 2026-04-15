@@ -1,39 +1,669 @@
 {
-    "dataset_name": "hotel_reservations",
-    "auto_extracted_schema": [
-        "- Booking_ID (varchar)",
-        "- no_of_adults (int)",
-        "- no_of_children (int)",
-        "- no_of_weekend_nights (int)",
-        "- no_of_week_nights (int)",
-        "- type_of_meal_plan (varchar)",
-        "- required_car_parking_space (int)",
-        "- room_type_reserved (varchar)",
-        "- lead_time (int)",
-        "- arrival_year (int)",
-        "- arrival_month (int)",
-        "- arrival_date (int)",
-        "- market_segment_type (varchar)",
-        "- repeated_guest (int)",
-        "- no_of_previous_cancellations (int)",
-        "- no_of_previous_bookings_not_canceled (int)",
-        "- avg_price_per_room (decimal)",
-        "- no_of_special_requests (int)",
-        "- booking_status (varchar)"
-    ],
+    "dataset": "hotel_db",
+    "source_type": "relational_db",
+    "target_dialect": "mysql",
+    "schema": {
+        "chat_messages": [
+            "id",
+            "user_id",
+            "session_id",
+            "role",
+            "message",
+            "created_at",
+            "confidence"
+        ],
+        "customer_orders": [
+            "order_id",
+            "customer_name",
+            "customer_city",
+            "product_name",
+            "category",
+            "price",
+            "quantity",
+            "order_date",
+            "delivery_date",
+            "payment_method",
+            "order_status",
+            "discount",
+            "rating",
+            "is_returned",
+            "shipping_cost"
+        ],
+        "hotel_reservations": [
+            "Booking_ID",
+            "no_of_adults",
+            "no_of_children",
+            "no_of_weekend_nights",
+            "no_of_week_nights",
+            "type_of_meal_plan",
+            "required_car_parking_space",
+            "room_type_reserved",
+            "lead_time",
+            "arrival_year",
+            "arrival_month",
+            "arrival_date",
+            "market_segment_type",
+            "repeated_guest",
+            "no_of_previous_cancellations",
+            "no_of_previous_bookings_not_canceled",
+            "avg_price_per_room",
+            "no_of_special_requests",
+            "booking_status"
+        ]
+    },
+    "data_profile": {
+        "id": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 100,
+            "sample_values": [
+                "1",
+                "2",
+                "3",
+                "4",
+                "5"
+            ]
+        },
+        "user_id": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 1,
+            "sample_values": [
+                "usr_rls66tzoky",
+                "usr_rls66tzoky",
+                "usr_rls66tzoky",
+                "usr_rls66tzoky",
+                "usr_rls66tzoky"
+            ]
+        },
+        "session_id": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 14,
+            "sample_values": [
+                "sess_721e415c0eb645b5",
+                "sess_721e415c0eb645b5",
+                "sess_721e415c0eb645b5",
+                "sess_721e415c0eb645b5",
+                "sess_5841b4c6f2524df4"
+            ]
+        },
+        "role": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 2,
+            "sample_values": [
+                "user",
+                "assistant",
+                "user",
+                "assistant",
+                "user"
+            ]
+        },
+        "message": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 90,
+            "sample_values": [
+                "how many rows are present in the database?",
+                "Here is the result:\nCount(*): 36275",
+                "can i give more chat questions?",
+                "Of course! What specific questions do you have about the hotel reservations database?",
+                "what is sql?"
+            ]
+        },
+        "created_at": {
+            "dtype": "datetime64[us]",
+            "nulls": 0,
+            "unique": 59,
+            "sample_values": [
+                "2026-03-07 01:09:05",
+                "2026-03-07 01:09:05",
+                "2026-03-07 01:09:38",
+                "2026-03-07 01:09:38",
+                "2026-03-07 01:12:02"
+            ]
+        },
+        "confidence": {
+            "dtype": "float64",
+            "nulls": 50,
+            "unique": 3,
+            "sample_values": [
+                "1.0",
+                "0.8",
+                "0.8",
+                "0.8",
+                "0.8"
+            ]
+        },
+        "order_id": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 100,
+            "sample_values": [
+                "O1",
+                "O2",
+                "O3",
+                "O4",
+                "O5"
+            ]
+        },
+        "customer_name": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 100,
+            "sample_values": [
+                "Bradley Crawford",
+                "Kimberly Henderson",
+                "Christopher Smith",
+                "Mark Clayton",
+                "Scott Flowers"
+            ]
+        },
+        "customer_city": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 99,
+            "sample_values": [
+                "Port Jamesmouth",
+                "Livingstonfort",
+                "South Veronica",
+                "Harrisville",
+                "Lake Toddview"
+            ]
+        },
+        "product_name": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 5,
+            "sample_values": [
+                "Laptop",
+                "Camera",
+                "Camera",
+                "Phone",
+                "Phone"
+            ]
+        },
+        "category": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 2,
+            "sample_values": [
+                "Electronics",
+                "Electronics",
+                "Electronics",
+                "Electronics",
+                "Electronics"
+            ]
+        },
+        "price": {
+            "dtype": "float64",
+            "nulls": 0,
+            "unique": 100,
+            "sample_values": [
+                "3208.87",
+                "2458.92",
+                "3620.61",
+                "4824.48",
+                "4369.41"
+            ]
+        },
+        "quantity": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 5,
+            "sample_values": [
+                "5",
+                "4",
+                "5",
+                "5",
+                "4"
+            ]
+        },
+        "order_date": {
+            "dtype": "object",
+            "nulls": 0,
+            "unique": 94,
+            "sample_values": [
+                "2025-04-26",
+                "2025-12-01",
+                "2025-10-09",
+                "2025-06-15",
+                "2026-01-13"
+            ]
+        },
+        "delivery_date": {
+            "dtype": "object",
+            "nulls": 0,
+            "unique": 86,
+            "sample_values": [
+                "2025-05-01",
+                "2025-12-02",
+                "2025-10-10",
+                "2025-06-21",
+                "2026-01-20"
+            ]
+        },
+        "payment_method": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 4,
+            "sample_values": [
+                "Card",
+                "Net Banking",
+                "UPI",
+                "UPI",
+                "Cash"
+            ]
+        },
+        "order_status": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 3,
+            "sample_values": [
+                "Pending",
+                "Delivered",
+                "Pending",
+                "Pending",
+                "Pending"
+            ]
+        },
+        "discount": {
+            "dtype": "float64",
+            "nulls": 0,
+            "unique": 30,
+            "sample_values": [
+                "0.23",
+                "0.08",
+                "0.22",
+                "0.29",
+                "0.16"
+            ]
+        },
+        "rating": {
+            "dtype": "float64",
+            "nulls": 0,
+            "unique": 38,
+            "sample_values": [
+                "3.4",
+                "1.8",
+                "3.4",
+                "1.2",
+                "2.6"
+            ]
+        },
+        "is_returned": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 2,
+            "sample_values": [
+                "1",
+                "0",
+                "1",
+                "1",
+                "0"
+            ]
+        },
+        "shipping_cost": {
+            "dtype": "float64",
+            "nulls": 0,
+            "unique": 100,
+            "sample_values": [
+                "38.63",
+                "100.82",
+                "181.75",
+                "199.3",
+                "124.45"
+            ]
+        },
+        "Booking_ID": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 100,
+            "sample_values": [
+                "INN00001",
+                "INN00002",
+                "INN00003",
+                "INN00004",
+                "INN00005"
+            ]
+        },
+        "no_of_adults": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 4,
+            "sample_values": [
+                "2",
+                "2",
+                "1",
+                "2",
+                "2"
+            ]
+        },
+        "no_of_children": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 3,
+            "sample_values": [
+                "0",
+                "0",
+                "0",
+                "0",
+                "0"
+            ]
+        },
+        "no_of_weekend_nights": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 3,
+            "sample_values": [
+                "1",
+                "2",
+                "2",
+                "0",
+                "1"
+            ]
+        },
+        "no_of_week_nights": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 6,
+            "sample_values": [
+                "2",
+                "3",
+                "1",
+                "2",
+                "1"
+            ]
+        },
+        "type_of_meal_plan": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 3,
+            "sample_values": [
+                "Meal Plan 1",
+                "Not Selected",
+                "Meal Plan 1",
+                "Meal Plan 1",
+                "Not Selected"
+            ]
+        },
+        "required_car_parking_space": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 2,
+            "sample_values": [
+                "0",
+                "0",
+                "0",
+                "0",
+                "0"
+            ]
+        },
+        "room_type_reserved": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 5,
+            "sample_values": [
+                "Room_Type 1",
+                "Room_Type 1",
+                "Room_Type 1",
+                "Room_Type 1",
+                "Room_Type 1"
+            ]
+        },
+        "lead_time": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 74,
+            "sample_values": [
+                "224",
+                "5",
+                "1",
+                "211",
+                "48"
+            ]
+        },
+        "arrival_year": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 2,
+            "sample_values": [
+                "2017",
+                "2018",
+                "2018",
+                "2018",
+                "2018"
+            ]
+        },
+        "arrival_month": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 12,
+            "sample_values": [
+                "10",
+                "11",
+                "2",
+                "5",
+                "4"
+            ]
+        },
+        "arrival_date": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 28,
+            "sample_values": [
+                "2",
+                "6",
+                "28",
+                "20",
+                "11"
+            ]
+        },
+        "market_segment_type": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 5,
+            "sample_values": [
+                "Offline",
+                "Online",
+                "Online",
+                "Online",
+                "Online"
+            ]
+        },
+        "repeated_guest": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 2,
+            "sample_values": [
+                "0",
+                "0",
+                "0",
+                "0",
+                "0"
+            ]
+        },
+        "no_of_previous_cancellations": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 1,
+            "sample_values": [
+                "0",
+                "0",
+                "0",
+                "0",
+                "0"
+            ]
+        },
+        "no_of_previous_bookings_not_canceled": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 2,
+            "sample_values": [
+                "0",
+                "0",
+                "0",
+                "0",
+                "0"
+            ]
+        },
+        "avg_price_per_room": {
+            "dtype": "float64",
+            "nulls": 0,
+            "unique": 76,
+            "sample_values": [
+                "65.0",
+                "106.68",
+                "60.0",
+                "100.0",
+                "94.5"
+            ]
+        },
+        "no_of_special_requests": {
+            "dtype": "int64",
+            "nulls": 0,
+            "unique": 4,
+            "sample_values": [
+                "0",
+                "1",
+                "0",
+                "0",
+                "0"
+            ]
+        },
+        "booking_status": {
+            "dtype": "str",
+            "nulls": 0,
+            "unique": 2,
+            "sample_values": [
+                "Not_Canceled",
+                "Not_Canceled",
+                "Canceled",
+                "Canceled",
+                "Canceled"
+            ]
+        }
+    },
     "semantic_layer": [
-        "Column Format 'Booking_ID': Example values look like 'INN00001', 'INN00002'.",
-        "Column Meaning 'type_of_meal_plan': Categorizes data into specific values: 'Meal Plan 1', 'Not Selected', 'Meal Plan 2', 'Meal Plan 3'.",
-        "Column Meaning 'room_type_reserved': Categorizes data into specific values: 'Room_Type 1', 'Room_Type 4', 'Room_Type 2', 'Room_Type 6', 'Room_Type 5', 'Room_Type 7', 'Room_Type 3'.",
-        "Column Meaning 'market_segment_type': Categorizes data into specific values: 'Offline', 'Online', 'Corporate', 'Aviation', 'Complementary'.",
-        "Column Meaning 'booking_status': Categorizes data into specific values: 'Not_Canceled', 'Canceled'.",
-        "TODO: Add human-defined metric formulas here (e.g., 'Revenue' = price * nights)"
+        "Column 'id' is a unique identifier.",
+        "Column 'user_id' is categorical with values: ['usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky', 'usr_rls66tzoky']",
+        "Column 'session_id' is categorical with values: ['sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_721e415c0eb645b5', 'sess_5841b4c6f2524df4']",
+        "Column 'role' is categorical with values: ['user', 'assistant', 'user', 'assistant', 'user']",
+        "Column 'confidence' is categorical with values: ['1.0', '0.8', '0.8', '0.8', '0.8']",
+        "Column 'order_id' is a unique identifier.",
+        "Column 'product_name' is categorical with values: ['Laptop', 'Camera', 'Camera', 'Phone', 'Phone']",
+        "Column 'category' is categorical with values: ['Electronics', 'Electronics', 'Electronics', 'Electronics', 'Electronics']",
+        "Column 'quantity' is categorical with values: ['5', '4', '5', '5', '4']",
+        "Column 'order_date' represents temporal/date information.",
+        "Column 'delivery_date' represents temporal/date information.",
+        "Column 'payment_method' is categorical with values: ['Card', 'Net Banking', 'UPI', 'UPI', 'Cash']",
+        "Column 'order_status' is categorical with values: ['Pending', 'Delivered', 'Pending', 'Pending', 'Pending']",
+        "Column 'is_returned' is categorical with values: ['1', '0', '1', '1', '0']",
+        "Column 'Booking_ID' is a unique identifier.",
+        "Column 'no_of_adults' is categorical with values: ['2', '2', '1', '2', '2']",
+        "Column 'no_of_children' is categorical with values: ['0', '0', '0', '0', '0']",
+        "Column 'no_of_weekend_nights' is categorical with values: ['1', '2', '2', '0', '1']",
+        "Column 'no_of_week_nights' is categorical with values: ['2', '3', '1', '2', '1']",
+        "Column 'type_of_meal_plan' is categorical with values: ['Meal Plan 1', 'Not Selected', 'Meal Plan 1', 'Meal Plan 1', 'Not Selected']",
+        "Column 'required_car_parking_space' is categorical with values: ['0', '0', '0', '0', '0']",
+        "Column 'room_type_reserved' is categorical with values: ['Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1', 'Room_Type 1']",
+        "Column 'lead_time' represents temporal/date information.",
+        "Column 'arrival_year' is categorical with values: ['2017', '2018', '2018', '2018', '2018']",
+        "Column 'arrival_month' is categorical with values: ['10', '11', '2', '5', '4']",
+        "Column 'arrival_date' represents temporal/date information.",
+        "Column 'market_segment_type' is categorical with values: ['Offline', 'Online', 'Online', 'Online', 'Online']",
+        "Column 'repeated_guest' is categorical with values: ['0', '0', '0', '0', '0']",
+        "Column 'no_of_previous_cancellations' is categorical with values: ['0', '0', '0', '0', '0']",
+        "Column 'no_of_previous_bookings_not_canceled' is categorical with values: ['0', '0', '0', '0', '0']",
+        "Column 'no_of_special_requests' is categorical with values: ['0', '1', '0', '0', '0']",
+        "Column 'booking_status' is categorical with values: ['Not_Canceled', 'Not_Canceled', 'Canceled', 'Canceled', 'Canceled']"
+    ],
+    "ontology": {
+        "order_id": [
+            "booking",
+            "reservation",
+            "order"
+        ],
+        "customer_name": [
+            "customer",
+            "guest",
+            "user",
+            "client"
+        ],
+        "customer_city": [
+            "customer",
+            "guest",
+            "user",
+            "client"
+        ],
+        "price": [
+            "price",
+            "cost",
+            "revenue",
+            "amount"
+        ],
+        "order_date": [
+            "booking",
+            "reservation",
+            "order"
+        ],
+        "order_status": [
+            "booking",
+            "reservation",
+            "order"
+        ],
+        "shipping_cost": [
+            "price",
+            "cost",
+            "revenue",
+            "amount"
+        ],
+        "Booking_ID": [
+            "booking",
+            "reservation",
+            "order"
+        ],
+        "repeated_guest": [
+            "customer",
+            "guest",
+            "user",
+            "client"
+        ],
+        "no_of_previous_bookings_not_canceled": [
+            "booking",
+            "reservation",
+            "order"
+        ],
+        "avg_price_per_room": [
+            "price",
+            "cost",
+            "revenue",
+            "amount"
+        ],
+        "booking_status": [
+            "booking",
+            "reservation",
+            "order"
+        ]
+    },
+    "business_rules": [
+        "Use 'lead_time' for time-series filtering and aggregations if the user mentions specific timeframes.",
+        "Use 'arrival_date' for time-series filtering and aggregations if the user mentions specific timeframes.",
+        "Use 'arrival_year' for time-series filtering and aggregations if the user mentions specific timeframes.",
+        "Use 'delivery_date' for time-series filtering and aggregations if the user mentions specific timeframes.",
+        "Use 'order_date' for time-series filtering and aggregations if the user mentions specific timeframes.",
+        "'shipping_cost' is a monetary field. Default to SUM() or AVG() when aggregating.",
+        "CRITICAL: Never apply status filters (like removing canceled/deleted records) if the user asks for 'total number of rows', 'exact count', or 'all records'.",
+        "'price' is a monetary field. Default to SUM() or AVG() when aggregating.",
+        "If calculating total duration, ensure 'no_of_weekend_nights' is summed correctly.",
+        "'avg_price_per_room' is a monetary field. Default to SUM() or AVG() when aggregating.",
+        "If calculating total duration, ensure 'no_of_week_nights' is summed correctly.",
+        "When calculating active revenue or active metrics, exclude 'booking_status' values like 'Canceled' or 'Deleted'."
     ],
     "constraints": [
-        "Rule: Always limit queries to 10 rows unless otherwise specified using LIMIT 10.",
-        "TODO: Add human-defined business rules here (e.g., 'Always exclude deleted/canceled records')"
+        "Always LIMIT 10 unless specified",
+        "Avoid SELECT *"
     ],
-    "examples": [
-        "Question: Show me the first 5 records from hotel_reservations.\nSQL: SELECT * FROM hotel_reservations LIMIT 5;"
-    ]
+    "examples": []
 }

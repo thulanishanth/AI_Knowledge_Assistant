@@ -1,5 +1,5 @@
 # app/security/sql_guard.py
-"""Strict read-only SQL validation for the configured table."""
+"""Strict read-only query validation for dynamic dialects and schemas."""
 
 from __future__ import annotations
 
@@ -31,34 +31,26 @@ except ImportError:  # pragma: no cover
     sqlglot = None
     exp = None
 
-_FORBIDDEN_KEYWORDS = {
-    "insert",
-    "update",
-    "delete",
-    "drop",
-    "alter",
-    "create",
-    "truncate",
-    "replace",
-    "grant",
-    "revoke",
-    "commit",
-    "rollback",
-    "call",
-    "execute",
-    "handler",
-    "load_file",
-    "outfile",
-    "dumpfile",
-    "benchmark",
-    "sleep",
+# SQL specific blocks
+_FORBIDDEN_SQL_KEYWORDS = {
+    "insert", "update", "delete", "drop", "alter", "create", 
+    "truncate", "replace", "grant", "revoke", "commit", 
+    "rollback", "call", "execute", "handler", "load_file", 
+    "outfile", "dumpfile", "benchmark", "sleep"
 }
+
+# NoSQL / MongoDB specific blocks
+_FORBIDDEN_NOSQL_KEYWORDS = {
+    "insert", "insertone", "insertmany", "update", "updateone", 
+    "updatemany", "delete", "deleteone", "deletemany", "remove", 
+    "drop", "dropdatabase", "replaceone"
+}
+
 _COMMENT_PATTERN = re.compile(r"(--|/\*|\*/|#)")
 _TABLE_PATTERN = re.compile(
     r"\b(?:from|join)\s+[`\"]?([a-zA-Z_][a-zA-Z0-9_]*)[`\"]?",
     re.IGNORECASE,
 )
-
 
 @dataclass(slots=True)
 class SqlValidationResult:
@@ -68,122 +60,157 @@ class SqlValidationResult:
 
 
 class SqlGuard:
-    """Validate that model-generated SQL is read-only and table-scoped."""
+    """Validate that model-generated queries are read-only and safely scoped."""
 
-    def __init__(self, allowed_table: str | None = None) -> None:
-        self._allowed_table = (allowed_table or settings.db_table).lower()
+    def validate(self, query: str, dialect: str = "mysql", allowed_tables: set[str] | None = None) -> SqlValidationResult:
+        """
+        Universally validate a query.
+        - dialect: e.g., 'mysql', 'duckdb', 'postgresql', 'mongodb_json'
+        - allowed_tables: A set of valid table names from the dynamic schema.
+        """
+        raw_query = str(query or "").strip()
+        if not raw_query:
+            return SqlValidationResult(is_valid=False, errors=["Empty query."])
 
-    def validate(self, sql_query: str) -> SqlValidationResult:
-        sql = str(sql_query or "").strip()
-        if not sql:
-            return SqlValidationResult(is_valid=False, errors=["Empty SQL query."])
+        normalized = self._normalize(raw_query, dialect)
+        safe_dialect = dialect.lower()
 
-        sql = self._normalize(sql)
-        keyword_errors = self._validate_keywords(sql)
+        # ==========================================
+        # 1. NoSQL / MongoDB Validation Routing
+        # ==========================================
+        if "mongo" in safe_dialect or "nosql" in safe_dialect:
+            return self._validate_nosql(normalized)
+
+        # ==========================================
+        # 2. Relational / SQL Validation Routing
+        # ==========================================
+        keyword_errors = self._validate_sql_keywords(normalized)
         if keyword_errors:
-            return SqlValidationResult(is_valid=False, normalized_sql=sql, errors=keyword_errors)
+            return SqlValidationResult(is_valid=False, normalized_sql=normalized, errors=keyword_errors)
 
         if sqlglot is not None:
-            return self._validate_with_sqlglot(sql)
-        return self._validate_with_regex(sql)
+            return self._validate_with_sqlglot(normalized, safe_dialect, allowed_tables)
+            
+        return self._validate_with_regex(normalized, allowed_tables)
 
     @staticmethod
-    def _normalize(sql_query: str) -> str:
-        sql = sql_query.replace("```sql", "").replace("```", "").strip()
-        if not sql.endswith(";"):
-            sql = f"{sql};"
-        return " ".join(sql.split())
+    def _normalize(query: str, dialect: str) -> str:
+        """Strip markdown and normalize spacing."""
+        q = query.replace("```sql", "").replace("```json", "").replace("```", "").strip()
+        if "mongo" not in dialect.lower() and not q.endswith(";"):
+            q = f"{q};"
+        return " ".join(q.split())
 
-    def _validate_keywords(self, sql_query: str) -> list[str]:
+    def _validate_sql_keywords(self, sql_query: str) -> list[str]:
+        """Basic regex guardrails for standard SQL."""
         lowered = sql_query.lower()
         errors: list[str] = []
+        
         if _COMMENT_PATTERN.search(lowered):
             errors.append("SQL comments are not allowed.")
         if lowered.count(";") > 1:
             errors.append("Multiple SQL statements are not allowed.")
-        for keyword in _FORBIDDEN_KEYWORDS:
+            
+        for keyword in _FORBIDDEN_SQL_KEYWORDS:
             if re.search(rf"\b{re.escape(keyword)}\b", lowered):
                 errors.append(f"Forbidden SQL keyword detected: {keyword}.")
+                
         if not re.match(r"^(select|with)\b", lowered):
-            errors.append("Only SELECT queries are allowed.")
+            errors.append("Only SELECT or WITH queries are allowed.")
+            
         return errors
 
-    def _validate_with_sqlglot(self, sql_query: str) -> SqlValidationResult:
+    def _validate_nosql(self, query: str) -> SqlValidationResult:
+        """Basic string-based guardrails for NoSQL/MongoDB payloads."""
+        lowered = query.lower()
+        errors: list[str] = []
+        
+        for keyword in _FORBIDDEN_NOSQL_KEYWORDS:
+            if keyword in lowered:
+                errors.append(f"Forbidden NoSQL operation detected: {keyword}.")
+                
+        if errors:
+            return SqlValidationResult(is_valid=False, normalized_sql=query, errors=errors)
+            
+        return SqlValidationResult(is_valid=True, normalized_sql=query)
+
+    def _validate_with_sqlglot(self, sql_query: str, dialect: str, allowed_tables: set[str] | None) -> SqlValidationResult:
+        """AST-based deep validation using sqlglot."""
+        # Map generic dialects to sqlglot supported dialects
+        sqlglot_dialect = dialect
+        if dialect == "postgresql": sqlglot_dialect = "postgres"
+        
         try:
-            statements = [stmt for stmt in sqlglot.parse(sql_query, read="mysql") if stmt is not None]
+            statements = [stmt for stmt in sqlglot.parse(sql_query, read=sqlglot_dialect) if stmt is not None]
         except ParseError as exc:
             return SqlValidationResult(
-                is_valid=False,
-                normalized_sql=sql_query,
-                errors=[f"Failed to parse SQL: {exc}"],
+                is_valid=False, normalized_sql=sql_query, errors=[f"Failed to parse {dialect.upper()} SQL: {exc}"]
             )
+            
         if len(statements) != 1:
             return SqlValidationResult(
-                is_valid=False,
-                normalized_sql=sql_query,
-                errors=["Multiple SQL statements are not allowed."],
+                is_valid=False, normalized_sql=sql_query, errors=["Multiple SQL statements are not allowed."]
             )
 
         statement = statements[0]
         if exp is None:
-            return self._validate_with_regex(sql_query)
+            return self._validate_with_regex(sql_query, allowed_tables)
 
         forbidden_nodes = (exp.Insert, exp.Update, exp.Delete, exp.Drop, exp.Alter, exp.Create)
         for forbidden_node in forbidden_nodes:
             if list(statement.find_all(forbidden_node)):
                 return SqlValidationResult(
-                    is_valid=False,
-                    normalized_sql=sql_query,
-                    errors=["Write operations are not allowed."],
+                    is_valid=False, normalized_sql=sql_query, errors=["Write operations are not allowed."]
                 )
 
-        tables = {
-            table.name.lower()
-            for table in statement.find_all(exp.Table)
-            if getattr(table, "name", None)
-        }
-        if not tables:
-            return SqlValidationResult(
-                is_valid=False,
-                normalized_sql=sql_query,
-                errors=["No table reference detected."],
-            )
-        if tables != {self._allowed_table}:
-            return SqlValidationResult(
-                is_valid=False,
-                normalized_sql=sql_query,
-                errors=[
-                    f"Query can reference only `{self._allowed_table}`. Found: {', '.join(sorted(tables))}.",
-                ],
-            )
+        # Skip strict table validation if we don't have the dynamic schema yet
+        if allowed_tables:
+            tables = {
+                table.name.lower()
+                for table in statement.find_all(exp.Table)
+                if getattr(table, "name", None)
+            }
+            if not tables:
+                return SqlValidationResult(
+                    is_valid=False, normalized_sql=sql_query, errors=["No table reference detected."]
+                )
+                
+            invalid_tables = tables - {t.lower() for t in allowed_tables}
+            if invalid_tables:
+                return SqlValidationResult(
+                    is_valid=False,
+                    normalized_sql=sql_query,
+                    errors=[f"Query references unauthorized tables: {', '.join(sorted(invalid_tables))}."],
+                )
 
         return SqlValidationResult(is_valid=True, normalized_sql=sql_query)
 
-    def _validate_with_regex(self, sql_query: str) -> SqlValidationResult:
+    def _validate_with_regex(self, sql_query: str, allowed_tables: set[str] | None) -> SqlValidationResult:
+        """Regex fallback if sqlglot AST fails or is missing."""
+        if not allowed_tables:
+            return SqlValidationResult(is_valid=True, normalized_sql=sql_query)
+            
         tables = {match.group(1).lower() for match in _TABLE_PATTERN.finditer(sql_query)}
         if not tables:
             return SqlValidationResult(
-                is_valid=False,
-                normalized_sql=sql_query,
-                errors=["No table reference detected."],
+                is_valid=False, normalized_sql=sql_query, errors=["No table reference detected."]
             )
-        if tables != {self._allowed_table}:
+            
+        invalid_tables = tables - {t.lower() for t in allowed_tables}
+        if invalid_tables:
             return SqlValidationResult(
                 is_valid=False,
                 normalized_sql=sql_query,
-                errors=[
-                    f"Query can reference only `{self._allowed_table}`. Found: {', '.join(sorted(tables))}.",
-                ],
+                errors=[f"Query references unauthorized tables: {', '.join(sorted(invalid_tables))}."],
             )
+            
         return SqlValidationResult(is_valid=True, normalized_sql=sql_query)
-
 
 _guard = SqlGuard()
 
-
-def validate_sql(sql_query: str) -> bool:
-    """Backward-compatible validation helper."""
-    result = _guard.validate(sql_query)
+def validate_sql(sql_query: str, dialect: str = "mysql", allowed_tables: set[str] | None = None) -> bool:
+    """Backward-compatible validation helper with new dynamic support."""
+    result = _guard.validate(sql_query, dialect, allowed_tables)
     if not result.is_valid:
         logger.warning("Rejected SQL candidate: %s", "; ".join(result.errors))
     return result.is_valid

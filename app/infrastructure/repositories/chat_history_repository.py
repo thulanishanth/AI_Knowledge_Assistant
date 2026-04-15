@@ -1,18 +1,13 @@
-#app/infrastructure/repositories/chat_history_repository.py
-"""Repository for persisted chat history and session metadata."""
+"""In-memory repository for chat history and session metadata."""
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
-
-from mysql.connector import Error
+from datetime import datetime, timezone
 
 from app.core.settings import settings
-from app.infrastructure.mysql_pool import close_connection, create_db_connection
 from app.security.input_sanitizer import normalize_role
-from app.core.logging import get_logger
-
-logger = get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -22,8 +17,21 @@ class SessionMessage:
     confidence: float | None = None
 
 
+@dataclass(slots=True)
+class _StoredMessage:
+    role: str
+    content: str
+    confidence: float | None
+    created_at: datetime
+
+
 class ChatHistoryRepository:
-    """Read and write chat history using parameterized SQL."""
+    """Read and write chat history in process memory."""
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._messages_by_session: dict[str, list[_StoredMessage]] = {}
+        self._session_index: dict[str, dict[str, object]] = {}
 
     def save_message(
         self,
@@ -33,110 +41,70 @@ class ChatHistoryRepository:
         message: str,
         confidence: float | None = None,
     ) -> None:
-        query = """
-            INSERT INTO chat_messages (user_id, session_id, role, message, confidence)
-            VALUES (%s, %s, %s, %s, %s)
-        """
-        connection = None
-        cursor = None
-        try:
-            connection = create_db_connection()
-            if connection is None:
-                return
-            cursor = connection.cursor()
-            cursor.execute(
-                query,
-                (user_id, session_id, normalize_role(role), message, confidence),
+        normalized_role = normalize_role(role)
+        content = str(message or "").strip()
+        now = datetime.now(timezone.utc)
+
+        with self._lock:
+            self._messages_by_session.setdefault(session_id, []).append(
+                _StoredMessage(
+                    role=normalized_role,
+                    content=content,
+                    confidence=confidence,
+                    created_at=now,
+                )
             )
-            connection.commit()
-        except Error as exc:
-            logger.error("Failed to persist chat history: %s", exc)
-            if connection is not None:
-                try:
-                    connection.rollback()
-                except Exception:  # pragma: no cover
-                    logger.debug("Rollback failed", exc_info=True)
-        finally:
-            if cursor is not None:
-                try:
-                    cursor.close()
-                except Exception:  # pragma: no cover
-                    logger.debug("Cursor close failed", exc_info=True)
-            close_connection(connection)
+
+            entry = self._session_index.setdefault(
+                session_id,
+                {
+                    "user_id": user_id,
+                    "title": "Untitled session",
+                    "updated_at": now,
+                },
+            )
+            entry["user_id"] = user_id
+            entry["updated_at"] = now
+
+            if normalized_role == "user" and content and entry["title"] == "Untitled session":
+                entry["title"] = content
 
     def list_user_sessions(self, user_id: str) -> list[dict[str, str]]:
-        query = """
-            SELECT session_id, message AS title
-            FROM chat_messages
-            WHERE user_id = %s AND role = 'user'
-            ORDER BY created_at DESC
-        """
-        connection = None
-        cursor = None
-        try:
-            connection = create_db_connection()
-            if connection is None:
-                return []
-            cursor = connection.cursor(dictionary=True)
-            cursor.execute(query, (user_id,))
-            rows = cursor.fetchall()
-            seen: set[str] = set()
-            sessions: list[dict[str, str]] = []
-            for row in rows:
-                session_id = str(row.get("session_id", "")).strip()
-                if not session_id or session_id in seen:
-                    continue
-                seen.add(session_id)
-                sessions.append(
-                    {
-                        "id": session_id,
-                        "session_id": session_id,
-                        "title": str(row.get("title", "")).strip() or "Untitled session",
-                    }
-                )
-            return sessions[: settings.session_history_limit]
-        except Error as exc:
-            logger.error("Failed to load user sessions: %s", exc)
-            return []
-        finally:
-            if cursor is not None:
-                try:
-                    cursor.close()
-                except Exception:  # pragma: no cover
-                    logger.debug("Cursor close failed", exc_info=True)
-            close_connection(connection)
+        with self._lock:
+            sessions = [
+                {
+                    "id": session_id,
+                    "session_id": session_id,
+                    "title": str(meta.get("title") or "Untitled session"),
+                    "updated_at": meta.get("updated_at"),
+                }
+                for session_id, meta in self._session_index.items()
+                if meta.get("user_id") == user_id
+            ]
+
+        sessions.sort(
+            key=lambda item: item.get("updated_at") or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
+
+        return [
+            {
+                "id": str(item["id"]),
+                "session_id": str(item["session_id"]),
+                "title": str(item["title"]),
+            }
+            for item in sessions[: settings.session_history_limit]
+        ]
 
     def get_session_messages(self, session_id: str) -> list[SessionMessage]:
-        query = """
-            SELECT role, message, confidence
-            FROM chat_messages
-            WHERE session_id = %s
-            ORDER BY created_at ASC
-        """
-        connection = None
-        cursor = None
-        try:
-            connection = create_db_connection()
-            if connection is None:
-                return []
-            cursor = connection.cursor(dictionary=True)
-            cursor.execute(query, (session_id,))
-            rows = cursor.fetchall()
-            return [
-                SessionMessage(
-                    role=normalize_role(str(row.get("role", ""))),
-                    content=str(row.get("message", "")),
-                    confidence=row.get("confidence"),
-                )
-                for row in rows
-            ]
-        except Error as exc:
-            logger.error("Failed to load session messages: %s", exc)
-            return []
-        finally:
-            if cursor is not None:
-                try:
-                    cursor.close()
-                except Exception:  # pragma: no cover
-                    logger.debug("Cursor close failed", exc_info=True)
-            close_connection(connection)
+        with self._lock:
+            stored_messages = list(self._messages_by_session.get(session_id, []))
+
+        return [
+            SessionMessage(
+                role=message.role,
+                content=message.content,
+                confidence=message.confidence,
+            )
+            for message in stored_messages
+        ]

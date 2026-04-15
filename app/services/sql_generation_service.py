@@ -1,5 +1,4 @@
 # app/services/sql_generation_service.py
-# app/services/sql_generation_service.py
 from __future__ import annotations
 import asyncio
 import re
@@ -20,7 +19,7 @@ logger = get_logger(__name__)
 class SqlGenerationResult:
     sql: str = ""
     validation: SqlValidationResult = field(
-        default_factory=lambda: SqlValidationResult(is_valid=False, errors=["No SQL generated."])
+        default_factory=lambda: SqlValidationResult(is_valid=False, errors=["No query generated."])
     )
     strategy: str = "none"
     notice: str | None = None
@@ -33,10 +32,9 @@ class SQLGenerationService:
     def __init__(self, schema_service: SchemaService, sql_guard: SqlGuard, prompt_builder: PromptBuilder) -> None:
         self._schema_service = schema_service
         self._sql_guard = sql_guard
-        self._prompt_builder = prompt_builder # Save the builder
+        self._prompt_builder = prompt_builder
 
     async def _robust_generate(self, prompt: str, model: str, is_cloud: bool, max_tokens: int = 300) -> tuple[str, str | None]:
-        # ... (Keep your existing _robust_generate logic here exactly as is) ...
         notice = None
         if is_cloud:
             notice = "*Using higher model for complex query.*"
@@ -70,15 +68,21 @@ class SQLGenerationService:
         is_cloud: bool = False
     ) -> SqlGenerationResult:
         
-        # USE PROMPT BUILDER HERE
-        prompt = self._prompt_builder.build_sql_prompt(question, schema, session_context)
+        # Updated to pass session_context correctly to the dialect-aware builder
+        prompt = self._prompt_builder.build_sql_prompt(
+            question=question, 
+            session_context=session_context,
+            schema=schema
+        )
         
         try:
             candidate, notice = await self._robust_generate(prompt=prompt, model=model, is_cloud=is_cloud)
         except Exception as e:
             return SqlGenerationResult(validation=SqlValidationResult(is_valid=False, errors=[str(e)]))
         
-        sql_candidate = self._extract_sql(candidate)
+        sql_candidate = self._extract_query(candidate)
+        
+        # Guard validation (Note: If using NoSQL, you may need to bypass SqlGuard or make it dialect-aware later)
         validation = self._sql_guard.validate(sql_candidate)
 
         if validation.is_valid:
@@ -86,10 +90,12 @@ class SQLGenerationService:
                 sql=validation.normalized_sql, validation=validation, strategy="llm_primary", notice=notice
             )
 
-        # USE PROMPT BUILDER HERE FOR REPAIR
         repair_prompt = self._prompt_builder.build_sql_repair_prompt(
-            question=question, schema=schema, session_context=session_context,
-            invalid_sql=sql_candidate, errors=validation.errors,
+            question=question, 
+            session_context=session_context,
+            invalid_sql=sql_candidate, 
+            errors=validation.errors,
+            schema=schema
         )
         
         try:
@@ -97,7 +103,7 @@ class SQLGenerationService:
         except Exception as e:
              return SqlGenerationResult(validation=SqlValidationResult(is_valid=False, errors=[str(e)]), notice=notice)
             
-        repaired_sql = self._extract_sql(repaired)
+        repaired_sql = self._extract_query(repaired)
         repaired_validation = self._sql_guard.validate(repaired_sql)
 
         return SqlGenerationResult(
@@ -106,13 +112,29 @@ class SQLGenerationService:
         )
         
     @staticmethod
-    def _extract_sql(text: str) -> str:
-        if not text: return ""
+    def _extract_query(text: str) -> str:
+        """
+        Universal extractor. Grabs code blocks regardless of dialect (SQL, JSON, Cypher).
+        Does NOT mandate the word 'SELECT', allowing NoSQL compatibility.
+        """
+        if not text: 
+            return ""
+            
         value = text.strip()
-        fenced = re.search(r"`{3}(?:sql)?(.*?)`{3}", value, re.IGNORECASE | re.DOTALL)
-        if fenced: value = fenced.group(1).strip()
-        match = re.search(r"\bselect\b.*", value, re.IGNORECASE | re.DOTALL)
-        if not match: return ""
-        sql = match.group(0).strip()
-        if ";" in sql: sql = sql.split(";", 1)[0].strip()
-        return f"{sql};"
+        
+        # 1. Try to extract from standard markdown code fences (```sql, ```json, etc.)
+        fenced = re.search(r"`{3}(?:\w+)?\n?(.*?)`{3}", value, re.IGNORECASE | re.DOTALL)
+        if fenced: 
+            extracted = fenced.group(1).strip()
+        else:
+            extracted = value
+
+        # 2. If it happens to be standard SQL, cleanly terminate it at the first semicolon.
+        # This prevents the LLM from trying to run multi-statement injections.
+        if re.search(r"^\s*(select|with)\b", extracted, re.IGNORECASE):
+            if ";" in extracted: 
+                extracted = extracted.split(";", 1)[0].strip()
+            return f"{extracted};"
+            
+        # 3. If it's NoSQL (like JSON or MongoDB syntax), return it as-is.
+        return extracted

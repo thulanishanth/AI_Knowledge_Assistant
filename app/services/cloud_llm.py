@@ -23,8 +23,8 @@ async def call_cloud_llm(
         raise ValueError("Prompt cannot be empty.")
     
     # Dynamically fetch the key from the environment!
-    cloud_api_key = os.getenv("OPENAI_API_KEY_CLOUD")
-    if not cloud_api_key:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
         raise RuntimeError("CLOUD_API_KEY is not configured.")
 
     payload = {
@@ -39,7 +39,7 @@ async def call_cloud_llm(
             response = await client.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {cloud_api_key}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
                 },
                 json=payload,

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -93,7 +94,7 @@ class QueryOrchestrator:
                     session_id=session_ctx.session_id,
                     user_query=sanitized.normalized,
                     include_vector=True, 
-                    rag_context=None # <--- CRITICAL: Must be None to trigger live DB schema fetch!
+                    rag_context=None  # Load the local semantic/RAG context for this request.
                 )
                 
                 session_context = str(memory_context.get("aggregated_context", ""))
@@ -178,13 +179,24 @@ class QueryOrchestrator:
             # ==========================================
             # FILTER CONTEXT: STRICTLY RAG KNOWLEDGE ONLY
             # ==========================================
-            clean_business_rules = ""
+            knowledge_chunks: list[str] = []
+            if debug_rag:
+                knowledge_chunks.append(str(debug_rag).strip())
+
             if debug_vector:
                 knowledge_only = [
-                    item for item in debug_vector 
+                    item for item in debug_vector
                     if item.get("source") == "knowledge_memory"
                 ]
-                clean_business_rules = "\n".join([f"- {item.get('text', '')}" for item in knowledge_only])
+                knowledge_chunks.extend(
+                    f"- {item.get('text', '').strip()}"
+                    for item in knowledge_only
+                    if item.get("text")
+                )
+
+            clean_business_rules = "\n\n".join(
+                chunk for chunk in knowledge_chunks if chunk
+            )
 
             # ==========================================
             # SELF-HEALING SQL EXECUTION LOOP
@@ -213,13 +225,18 @@ class QueryOrchestrator:
 
                 # 2. Build Prompt and Generate SQL
                 debug_sql_prompt = self._prompt_builder.build_sql_prompt(
-                question=final_query, schema=schema, session_context=clean_business_rules
-            )
+                    question=final_query,
+                    schema=schema,
+                    session_context=current_context,
+                )
 
                 sql_result = await self._sql_generation_service.generate_sql(
-                question=final_query, schema=schema, session_context=clean_business_rules,
-                model=target_model, is_cloud=is_cloud
-            )
+                    question=final_query,
+                    schema=schema,
+                    session_context=current_context,
+                    model=target_model,
+                    is_cloud=is_cloud,
+                )
                 logger.info(f"🚀 [LLM SQL] (Attempt {attempt}): {sql_result.sql}")
 
                 # 3. Security Check (Break immediately if malicious, do NOT retry)
@@ -252,11 +269,35 @@ class QueryOrchestrator:
 
                 if execution is None:
                     try:
-                        execution = self._sql_execution_service.execute(sql_result.sql)
+                        # --- DYNAMIC SOURCE RESOLUTION ---
+                        context_path = Path(__file__).resolve().parent.parent / "data" / "business_context.json"
+                        
+                        # Safe fallback using your individual settings variables if the JSON is missing
+                        category = "relational_db"
+                        source_uri = f"mysql+pymysql://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}"
+                        
+                        # Read the dynamic configuration
+                        if context_path.exists():
+                            with open(context_path, "r", encoding="utf-8") as f:
+                                b_ctx = json.load(f)
+                                category = b_ctx.get("source_type", "relational_db")
+                                if "source_path" in b_ctx:
+                                    source_uri = b_ctx["source_path"]
+
+                        # --- EXECUTE ---
+                        execution = self._sql_execution_service.execute(
+                            sql_query=sql_result.sql,
+                            source_uri=source_uri,
+                            category=category
+                        )
+                        
                         if hasattr(execution, "error_message") and execution.error_message:
                             raise ValueError(execution.error_message)
+                            
+                        self._query_cache.set(cache_key, execution)
                         # Success! Break the loop
-                        break 
+                        break
+
                     except Exception as e:
                         db_error_message = str(e)
                         previous_sql = sql_result.sql
@@ -297,7 +338,10 @@ class QueryOrchestrator:
                 try:
                     data_preview = json.dumps(execution.rows[:5], default=str)
                     debug_synthesis_prompt = self._prompt_builder.build_synthesis_prompt(
-                        question=final_query, data_preview=data_preview
+                        question=final_query,
+                        data_preview=data_preview,
+                        row_count=execution.row_count,       # Add this line
+                        executed_sql=execution.executed_sql  # Add this line
                     )
                     explanation = await asyncio.to_thread(
                         call_llm, prompt=debug_synthesis_prompt, max_tokens=150, temperature=0.3

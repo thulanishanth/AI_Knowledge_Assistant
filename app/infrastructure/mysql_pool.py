@@ -1,4 +1,4 @@
-#app/infrastructure/vector_store/mysql_pool.py
+#app/infrastructure/mysql_pool.py
 """MySQL pooled connection management."""
 
 from __future__ import annotations

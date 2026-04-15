@@ -1,217 +1,143 @@
-#app/infrastructure/repositories/schema_repository.py
-"""Repository for live schema inspection of the configured table."""
+"""Repository for dynamic schema inspection backed by Universal Context JSON."""
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from mysql.connector import Error
-
-from app.core.settings import settings
-from app.infrastructure.mysql_pool import close_connection, create_db_connection
 from app.core.logging import get_logger
+from app.core.settings import settings
 
 logger = get_logger(__name__)
 
 _TEXT_TYPES = {"char", "varchar", "text", "tinytext", "mediumtext", "longtext", "enum"}
+_BUSINESS_CONTEXT_PATH = Path(__file__).resolve().parents[2] / "data" / "business_context.json"
 
-
-def _row_value(
-    row,
-    *keys: str,
-    index: int | None = None,
-    default=None,
-):
-    """Safely read from dict/tuple MySQL rows with case-insensitive keys."""
-    if isinstance(row, dict):
-        normalized = {str(key).lower(): value for key, value in row.items()}
-        for key in keys:
-            if key.lower() in normalized:
-                return normalized[key.lower()]
-        return default
-    if isinstance(row, (tuple, list)) and index is not None and index < len(row):
-        return row[index]
-    return default
+# Matches the "- column_name (data_type)" format from our dynamic extractor
+_CONTEXT_SCHEMA_PATTERN = re.compile(r"-\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]+)\)")
 
 
 @dataclass(frozen=True, slots=True)
 class ColumnProfile:
     name: str
     data_type: str
-    nullable: bool
-    is_primary_key: bool
+    nullable: bool = True
+    is_primary_key: bool = False
     sample_values: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def is_numeric(self) -> bool:
-        return self.data_type in {
-            "int",
-            "integer",
-            "bigint",
-            "smallint",
-            "tinyint",
-            "mediumint",
-            "decimal",
-            "float",
-            "double",
+        return self.data_type.lower() in {
+            "int", "integer", "bigint", "smallint", "tinyint", 
+            "mediumint", "decimal", "float", "double", "numeric"
         }
 
     @property
     def is_text(self) -> bool:
-        return self.data_type in _TEXT_TYPES
+        return self.data_type.lower() in _TEXT_TYPES
 
 
 @dataclass(frozen=True, slots=True)
 class TableSchema:
-    database_name: str
-    table_name: str
-    columns: tuple[ColumnProfile, ...]
+    """Represents the complete schema layout, supporting multiple tables for Relational DBs."""
+    dataset_name: str
+    dialect: str
+    tables: dict[str, tuple[ColumnProfile, ...]]
 
     @property
-    def column_names(self) -> tuple[str, ...]:
-        return tuple(column.name for column in self.columns)
-
-    @property
-    def primary_columns(self) -> tuple[str, ...]:
-        return tuple(column.name for column in self.columns if column.is_primary_key)
+    def table_name(self) -> str:
+        """Backward compatibility: Returns the first table name if requested."""
+        return next(iter(self.tables.keys()), self.dataset_name) if self.tables else self.dataset_name
 
     @property
     def fingerprint(self) -> str:
-        return "|".join(
-            f"{column.name}:{column.data_type}:{','.join(column.sample_values)}"
-            for column in self.columns
-        )
+        """Generates a unique signature for caching queries."""
+        parts = [f"{self.dataset_name}:{self.dialect}"]
+        for table, cols in self.tables.items():
+            for col in cols:
+                parts.append(f"{table}.{col.name}:{col.data_type}")
+        return "|".join(parts)
 
     def to_prompt_block(self) -> str:
+        """Renders the entire multi-table schema for the LLM Prompt."""
         lines = [
-            f"Database: {self.database_name}",
-            f"Table: {self.table_name}",
-            "Columns:",
+            f"Target Execution Dialect: {self.dialect.upper()}",
+            f"Dataset Name: {self.dataset_name}",
+            "Schema Structure:"
         ]
-        for column in self.columns:
-            nullable = "nullable" if column.nullable else "required"
-            key_marker = " primary-key" if column.is_primary_key else ""
-            lines.append(
-                f"- {column.name} ({column.data_type}, {nullable}{key_marker})"
-            )
-            if column.sample_values:
-                joined = ", ".join(column.sample_values)
-                lines.append(f"  Sample values: {joined}")
+        
+        for table_name, columns in self.tables.items():
+            lines.append(f"\nTable: {table_name}")
+            for col in columns:
+                key_marker = " [PRIMARY KEY]" if col.is_primary_key else ""
+                lines.append(f"  - {col.name} ({col.data_type}){key_marker}")
+                if col.sample_values:
+                    joined = ", ".join(f"'{val}'" for val in col.sample_values)
+                    lines.append(f"    Sample values: {joined}")
+                    
         return "\n".join(lines)
 
 
 class SchemaRepository:
-    """Fetch column metadata and low-cardinality examples from MySQL."""
+    """Reads structured schema, dialect, and data profiles from the Universal JSON."""
 
     def get_active_schema(self) -> TableSchema:
-        connection = None
-        cursor = None
+        if not _BUSINESS_CONTEXT_PATH.exists():
+            logger.warning("business_context.json not found! Please run dynamic_extractor.py first.")
+            return TableSchema(dataset_name="unknown", dialect="unknown", tables={})
+
         try:
-            connection = create_db_connection()
-            if connection is None:
-                raise RuntimeError("Database connection unavailable for schema fetch.")
+            with open(_BUSINESS_CONTEXT_PATH, "r", encoding="utf-8") as f:
+                context_data = json.load(f)
 
-            cursor = connection.cursor(dictionary=True)
-            cursor.execute(
-                """
-                SELECT
-                    c.column_name,
-                    c.data_type,
-                    c.is_nullable,
-                    CASE WHEN k.column_name IS NULL THEN 0 ELSE 1 END AS is_primary_key
-                FROM information_schema.columns AS c
-                LEFT JOIN information_schema.key_column_usage AS k
-                    ON c.table_schema = k.table_schema
-                    AND c.table_name = k.table_name
-                    AND c.column_name = k.column_name
-                    AND k.constraint_name = 'PRIMARY'
-                WHERE c.table_schema = %s AND c.table_name = %s
-                ORDER BY c.ordinal_position
-                """,
-                (settings.db_name, settings.db_table),
-            )
-            rows = cursor.fetchall()
-            if not rows:
-                raise RuntimeError("Configured table was not found in MySQL metadata.")
+            dataset_name = context_data.get("dataset", settings.db_table)
+            dialect = context_data.get("target_dialect", "unknown")
+            raw_schema = context_data.get("schema", {})
+            data_profile = context_data.get("data_profile", {})
 
-            columns: list[ColumnProfile] = []
-            for row in rows:
-                name = _row_value(row, "column_name", "COLUMN_NAME", index=0)
-                data_type = _row_value(row, "data_type", "DATA_TYPE", index=1)
-                is_nullable = _row_value(row, "is_nullable", "IS_NULLABLE", index=2)
-                is_primary_key = _row_value(
-                    row,
-                    "is_primary_key",
-                    "IS_PRIMARY_KEY",
-                    index=3,
-                    default=0,
-                )
+            tables: dict[str, tuple[ColumnProfile, ...]] = {}
 
-                if name is None or data_type is None:
-                    logger.warning("Skipping unexpected schema metadata row: %r", row)
-                    continue
+            # Parse out all tables/collections
+            for table_name, columns_list in raw_schema.items():
+                parsed_columns: list[ColumnProfile] = []
+                
+                for col_str in columns_list:
+                    match = _CONTEXT_SCHEMA_PATTERN.match(str(col_str).strip())
+                    if not match:
+                        continue
 
-                columns.append(
-                    ColumnProfile(
-                        name=str(name),
-                        data_type=str(data_type).lower(),
-                        nullable=str(is_nullable).upper() == "YES",
-                        is_primary_key=bool(is_primary_key),
-                        sample_values=self._load_sample_values(
-                            cursor,
-                            str(name),
-                            str(data_type).lower(),
-                        ),
+                    col_name = match.group(1)
+                    data_type = match.group(2).strip().lower()
+                    
+                    # Safely grab sample values directly from the new data_profile feature!
+                    sample_values = ()
+                    if col_name in data_profile:
+                        samples = data_profile[col_name].get("sample_values", [])
+                        sample_values = tuple(str(v) for v in samples if v)
+
+                    parsed_columns.append(
+                        ColumnProfile(
+                            name=col_name,
+                            data_type=data_type,
+                            nullable=True,               # Assumed true unless defined otherwise
+                            is_primary_key="id" in col_name.lower(), # Simple heuristic
+                            sample_values=sample_values,
+                        )
                     )
-                )
+                
+                tables[table_name] = tuple(parsed_columns)
 
-            if not columns:
-                raise RuntimeError("Could not parse schema metadata for the configured table.")
-
-            return TableSchema(
-                database_name=settings.db_name,
-                table_name=settings.db_table,
-                columns=tuple(columns),
+            schema_obj = TableSchema(
+                dataset_name=dataset_name,
+                dialect=dialect,
+                tables=tables
             )
-        except Error as exc:
-            logger.exception("Failed to load live schema: %s", exc)
-            raise RuntimeError("Failed to load schema metadata from MySQL.") from exc
-        except RuntimeError:
-            raise
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            logger.exception("Unexpected schema metadata error: %s", exc)
-            raise RuntimeError("Unexpected schema metadata error.") from exc
-        finally:
-            if cursor is not None:
-                try:
-                    cursor.close()
-                except Exception:  # pragma: no cover
-                    logger.debug("Cursor close failed", exc_info=True)
-            close_connection(connection)
+            
+            logger.info("Successfully loaded Universal Schema mapping into repository.")
+            return schema_obj
 
-    @staticmethod
-    def _load_sample_values(cursor, column_name: str, data_type: str) -> tuple[str, ...]:
-        if data_type not in _TEXT_TYPES:
-            return ()
-        try:
-            cursor.execute(
-                f"""
-                SELECT DISTINCT `{column_name}` AS value
-                FROM `{settings.db_table}`
-                WHERE `{column_name}` IS NOT NULL AND TRIM(`{column_name}`) <> ''
-                ORDER BY `{column_name}`
-                LIMIT 8
-                """,
-            )
-            rows = cursor.fetchall()
-        except Error:
-            logger.debug("Could not load sample values for %s", column_name, exc_info=True)
-            return ()
-
-        samples = []
-        for row in rows:
-            value = _row_value(row, "value", "VALUE", index=0)
-            if value is None:
-                continue
-            samples.append(str(value).strip())
-        return tuple(samples)
+        except Exception as exc:
+            logger.exception("Failed to parse Universal Schema JSON: %s", exc)
+            return TableSchema(dataset_name="error", dialect="error", tables={})

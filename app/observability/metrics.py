@@ -37,6 +37,11 @@ class Metrics:
             self._error_counter = PROM_COUNTER_CLS(
                 "assistant_errors_total", "Total assistant errors", ["component"]
             )
+            self._signal_counter = PROM_COUNTER_CLS(
+                "assistant_pipeline_events_total",
+                "Pipeline event counts",
+                ["signal"],
+            )
             self._latency_histogram = PROM_HISTOGRAM_CLS(
                 "assistant_latency_seconds",
                 "Operation latency in seconds",
@@ -45,6 +50,7 @@ class Metrics:
         else:
             self._request_counter = None
             self._error_counter = None
+            self._signal_counter = None
             self._latency_histogram = None
             if settings.enable_metrics:
                 logger.warning("prometheus_client unavailable; metrics are disabled.")
@@ -58,6 +64,11 @@ class Metrics:
         """Increment per-component error counter."""
         if self._error_counter is not None:
             self._error_counter.labels(component=component).inc()
+
+    def increment_signal(self, signal: str) -> None:
+        """Increment a generic pipeline event counter."""
+        if self._signal_counter is not None:
+            self._signal_counter.labels(signal=signal).inc()
 
     @contextmanager
     def timer(self, operation: str) -> Iterator[None]:
