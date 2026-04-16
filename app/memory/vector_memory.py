@@ -31,11 +31,51 @@ class VectorMemory:
         self._reranker = reranker_service
         self._user_collection = settings.vector_collection_user
         self._knowledge_collection = settings.vector_collection_knowledge
+        
+        self._user_profile_collection = getattr(
+            settings,
+            "vector_collection_user_profile",
+            "user_profile_collection",
+        )
 
     async def initialize_vector_store(self) -> None:
         """Initialize underlying vector store client(s)."""
         await self._vector_store.initialize()
 
+    async def get_user_profile(self, user_id: str) -> str:
+        """Fetch the user's living profile summary."""
+        record_id = f"profile_{user_id}"
+        try:
+            dummy_embedding = await self.generate_embedding("profile search")
+            records = await self._vector_store.query_records(
+                self._user_profile_collection,
+                query_embedding=dummy_embedding,
+                top_k=1,
+                filters={"user_id": user_id}
+            )
+            if records and records[0].id == record_id:
+                return records[0].text
+            return ""
+        except Exception as e:
+            logger.debug(f"Profile fetch failed or empty for {user_id}: {e}")
+            return ""
+
+    async def save_user_profile(self, user_id: str, profile_text: str) -> None:
+        """Overwrite the user's living profile summary."""
+        if not profile_text.strip():
+            return
+        record_id = f"profile_{user_id}"
+        embedding = await self.generate_embedding(profile_text)
+        await self._vector_store.upsert_records(
+            self._user_profile_collection,
+            [VectorRecord(
+                id=record_id,
+                text=profile_text.strip(),
+                embedding=embedding,
+                metadata={"user_id": user_id, "type": "living_profile"}
+            )],
+        )
+        
     async def store_user_memory(
         self,
         user_id: str,

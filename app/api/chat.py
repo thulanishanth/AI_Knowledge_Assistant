@@ -62,14 +62,14 @@ def _fetch_session_history_sync(
 
 @router.post("/", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest) -> ChatResponse:
-    """Handle one user question against the configured database table."""
     user_id = request.user_id or "anonymous"
-
+    
     try:
         result = await container.query_orchestrator.handle_query(
             user_question=request.question,
             user_id=user_id,
             session_id=request.session_id,
+            tenant_id=request.tenant_id, 
         )
 
         save_chat_message(

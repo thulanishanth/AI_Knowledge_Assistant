@@ -1,3 +1,4 @@
+# app/infrastructure/repositories/chat_history_repository.py
 """In-memory repository for chat history and session metadata."""
 
 from __future__ import annotations

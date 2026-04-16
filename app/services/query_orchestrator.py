@@ -21,6 +21,7 @@ from app.services.sql_generation_service import SQLGenerationService
 from app.services.intent_service import IntentService
 from app.services.llm_client import call_llm
 from app.services.prompt_builder import PromptBuilder
+from app.services.conversation_state_store import ConversationStateStore, LastQueryState, DialogueState
 
 logger = get_logger(__name__)
 
@@ -53,6 +54,7 @@ class QueryOrchestrator:
         sql_execution_service: SQLExecutionService,
         response_formatter: ResponseFormatter,
         prompt_builder: PromptBuilder,
+        conversation_state_store: ConversationStateStore,
     ) -> None:
         self._session_manager = session_manager
         self._memory_manager = memory_manager
@@ -62,6 +64,7 @@ class QueryOrchestrator:
         self._sql_execution_service = sql_execution_service
         self._response_formatter = response_formatter
         self._prompt_builder = prompt_builder
+        self._conversation_state_store = conversation_state_store
         self._query_cache: TTLCache[QueryExecutionResult] = TTLCache(settings.query_cache_ttl_seconds)
 
     async def handle_query(
@@ -69,6 +72,7 @@ class QueryOrchestrator:
         user_question: str,
         user_id: str = "anonymous",
         session_id: str | None = None,
+        tenant_id: str = "hotel",
     ) -> QueryResponse:
         sanitized = sanitize_question(user_question)
         if not sanitized.normalized:
@@ -77,7 +81,7 @@ class QueryOrchestrator:
         session_ctx = self._session_manager.resolve(user_id=user_id, session_id=session_id)
 
         with tracing.span("query.handle"), metrics.timer("query_total"):
-            schema = await self._schema_service.get_schema()
+            schema = await self._schema_service.get_schema(tenant_id)
             
             # ==========================================
             # 1. FETCH & UNPACK ALL MEMORY COMPONENTS
@@ -94,7 +98,8 @@ class QueryOrchestrator:
                     session_id=session_ctx.session_id,
                     user_query=sanitized.normalized,
                     include_vector=True, 
-                    rag_context=None  # Load the local semantic/RAG context for this request.
+                    rag_context=None,
+                    tenant_id=tenant_id   
                 )
                 
                 session_context = str(memory_context.get("aggregated_context", ""))
@@ -106,14 +111,21 @@ class QueryOrchestrator:
             except Exception:
                 logger.exception("Memory context load failed")
 
+            # FETCH CONVERSATION STATE FOR FOLLOW-UPS
+            dialogue_state_obj = await self._conversation_state_store.get_dialogue_state(
+                session_ctx.user_id, session_ctx.session_id
+            )
+            dialogue_state_str = json.dumps(dialogue_state_obj.to_prompt_payload())
+
             # --- 2. Let the LLM figure out exactly what the user wants! ---
             analysis = await asyncio.to_thread(
                 self._intent_service.analyze, 
                 user_question=sanitized.normalized, 
-                memory_context=session_context
+                memory_context=session_context,
+                dialogue_state=dialogue_state_str
             )
             
-            intent = analysis.get("intent", "database_query")
+            intent = analysis.get("route", "database_query")
             
             def build_debug_meta(strategy: str, sql: str = "", ms: float = 0.0, rows: int = 0, cached: bool = False, sql_prompt: str = None, synth_prompt: str = None):
                 return {
@@ -132,8 +144,31 @@ class QueryOrchestrator:
                     }
                 }
 
-            # --- 3. Schema Inquiry ---
-            if intent == "schema_inquiry":
+            # --- 3. The Clarification Router (Stop Guessing!) ---
+            if intent == "clarify" or analysis.get("needs_clarification") is True:
+                clarifying_msg = analysis.get("clarifying_question", "Could you provide a little more detail about the data you want to see?")
+                
+                # Update dialogue state to expect clarification
+                dialogue_state_obj.pending_clarification = clarifying_msg
+                await self._conversation_state_store.save_dialogue_state(
+                    session_ctx.user_id, session_ctx.session_id, dialogue_state_obj
+                )
+                
+                await self._memory_manager.update_memory_pipeline(
+                    user_id=session_ctx.user_id, session_id=session_ctx.session_id,
+                    question=sanitized.normalized, answer=clarifying_msg,
+                )
+                
+                return QueryResponse(
+                    answer=clarifying_msg, 
+                    confidence=1.0, 
+                    session_id=session_ctx.session_id,
+                    presentation={"kind": "notice", "title": "Clarification Needed", "message": clarifying_msg},
+                    meta=build_debug_meta("intent_clarify")
+                )
+
+            # --- 4. Schema Inquiry ---
+            if intent == "schema_answer":
                 schema_answer = schema.to_prompt_block()
                 return QueryResponse(
                     answer=schema_answer, confidence=1.0, session_id=session_ctx.session_id,
@@ -141,9 +176,13 @@ class QueryOrchestrator:
                     meta=build_debug_meta("llm_intent_schema"),
                 )
             
-            # --- 4. Greeting, Chitchat, or Explanation ---
-            if intent in ["greeting", "general_chitchat", "explanation"]:
-                chat_answer = analysis.get("direct_response", "I'm sorry, I couldn't generate an explanation.")
+            # --- 5. Greeting, Chitchat, or Explanation ---
+            if intent in ["general_answer", "explain_last_answer", "diagnose"]:
+                chat_answer = await asyncio.to_thread(
+                    self._intent_service.answer_general_question,
+                    user_question=sanitized.normalized,
+                    memory_context=session_context
+                )
                 
                 try:
                     await self._memory_manager.update_memory_pipeline(
@@ -153,32 +192,20 @@ class QueryOrchestrator:
                 except Exception:
                     pass
                     
-                strategy_name = "intent_explanation" if intent == "explanation" else "intent_chitchat"
-                
                 return QueryResponse(
                     answer=chat_answer, confidence=1.0, session_id=session_ctx.session_id,
                     presentation={"kind": "text", "message": chat_answer},
-                    meta=build_debug_meta(strategy_name),
+                    meta=build_debug_meta(f"intent_{intent}"),
                 )
 
-            # --- 5. Database Query Flow ---
-            final_query = analysis.get("corrected_query", sanitized.normalized)
-            difficulty_score = analysis.get("difficulty_score", 50) 
+            # --- 6. Database Query Flow ---
+            final_query = analysis.get("standalone_question", sanitized.normalized)
             
-            if difficulty_score <= 50:
-                target_model, is_cloud = "local-llm", False  
-            elif difficulty_score <= 60:
-                target_model, is_cloud = "gpt-4o-mini", True   
-            elif difficulty_score <= 85:
-                target_model, is_cloud = "gpt-4-turbo", True
-            else:
-                target_model, is_cloud = "gpt-4o", True 
+            # Target Model Routing
+            difficulty_score = 50 
+            target_model, is_cloud = "local-llm", False  
 
-            logger.info(f"🔀 [MODEL ROUTER] Difficulty: {difficulty_score}/100 | Selected Model: {target_model}")
-
-            # ==========================================
             # FILTER CONTEXT: STRICTLY RAG KNOWLEDGE ONLY
-            # ==========================================
             knowledge_chunks: list[str] = []
             if debug_rag:
                 knowledge_chunks.append(str(debug_rag).strip())
@@ -194,12 +221,10 @@ class QueryOrchestrator:
                     if item.get("text")
                 )
 
-            clean_business_rules = "\n\n".join(
-                chunk for chunk in knowledge_chunks if chunk
-            )
+            clean_business_rules = "\n\n".join(chunk for chunk in knowledge_chunks if chunk)
 
             # ==========================================
-            # SELF-HEALING SQL EXECUTION LOOP
+            # SELF-HEALING SQL EXECUTION & CRITIC LOOP
             # ==========================================
             max_attempts = 3
             attempt = 1
@@ -211,19 +236,19 @@ class QueryOrchestrator:
             cached = False
 
             while attempt <= max_attempts:
-                # 1. Inject Error Reflection if this is a retry attempt
                 current_context = clean_business_rules
+                
+                # Inject Error Reflection if this is a retry attempt
                 if attempt > 1 and db_error_message and previous_sql:
-                    logger.warning(f"🔄 [SELF-HEALING] Attempt {attempt}/{max_attempts} triggered to fix SQL error.")
+                    logger.warning(f"🔄 [SELF-HEALING] Attempt {attempt}/{max_attempts} triggered.")
                     reflection_msg = (
                         f"\n\nCRITICAL ERROR REFLECTION:\n"
                         f"Your previous SQL query:\n```sql\n{previous_sql}\n```\n"
-                        f"Failed with the following database error:\n{db_error_message}\n\n"
+                        f"Failed with the following error:\n{db_error_message}\n\n"
                         f"Please analyze the schema carefully and write a corrected SQL query that fixes this exact error."
                     )
                     current_context += reflection_msg
 
-                # 2. Build Prompt and Generate SQL
                 debug_sql_prompt = self._prompt_builder.build_sql_prompt(
                     question=final_query,
                     schema=schema,
@@ -239,7 +264,6 @@ class QueryOrchestrator:
                 )
                 logger.info(f"🚀 [LLM SQL] (Attempt {attempt}): {sql_result.sql}")
 
-                # 3. Security Check (Break immediately if malicious, do NOT retry)
                 if not sql_result.is_valid:
                     error_details = "; ".join(sql_result.validation.errors)
                     safe_answer = "Security Alert: Prohibited operation." if "Write operations" in error_details else f"Blocked: {error_details}"
@@ -262,29 +286,52 @@ class QueryOrchestrator:
                         meta=build_debug_meta("security_blocked", sql=sql_result.sql, sql_prompt=debug_sql_prompt),
                     )
 
-                # 4. Attempt to Execute the SQL
+                # --- THE SQL CRITIC (Result Critic) ---
+                sql_review = await asyncio.to_thread(
+                    self._intent_service.review_sql_candidate,
+                    question=final_query,
+                    sql=sql_result.sql,
+                    schema=schema,
+                    session_context=current_context
+                )
+                
+                if sql_review.get("verdict") == "retry" and attempt < max_attempts:
+                    logger.warning(f"⚖️ [SQL CRITIC REJECTED]: {sql_review.get('reason')}")
+                    db_error_message = f"SQL Critic rejected the query: {sql_review.get('reason')}"
+                    previous_sql = sql_result.sql
+                    attempt += 1
+                    continue
+                    
+                elif sql_review.get("verdict") == "clarify":
+                    clarifying_msg = sql_review.get("clarifying_question", "I need a bit more detail to write this query safely.")
+                    return QueryResponse(
+                        answer=clarifying_msg, confidence=1.0, session_id=session_ctx.session_id,
+                        presentation={"kind": "notice", "title": "Clarification Needed", "message": clarifying_msg},
+                        meta=build_debug_meta("critic_clarify", sql=sql_result.sql)
+                    )
+
                 cache_key = f"{schema.fingerprint}|{sql_result.sql}"
                 execution = self._query_cache.get(cache_key)
                 cached = execution is not None
 
                 if execution is None:
                     try:
-                        # --- DYNAMIC SOURCE RESOLUTION ---
+                        # 3. Dynamically load the exact database URI for this tenant!
                         context_path = Path(__file__).resolve().parent.parent / "data" / "business_context.json"
-                        
-                        # Safe fallback using your individual settings variables if the JSON is missing
                         category = "relational_db"
+                        
+                        # Default fallback URI
                         source_uri = f"mysql+pymysql://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}"
                         
-                        # Read the dynamic configuration
                         if context_path.exists():
                             with open(context_path, "r", encoding="utf-8") as f:
                                 b_ctx = json.load(f)
                                 category = b_ctx.get("source_type", "relational_db")
+                                
+                                # This allows you to have completely different databases for different tenants!
                                 if "source_path" in b_ctx:
                                     source_uri = b_ctx["source_path"]
 
-                        # --- EXECUTE ---
                         execution = self._sql_execution_service.execute(
                             sql_query=sql_result.sql,
                             source_uri=source_uri,
@@ -295,7 +342,6 @@ class QueryOrchestrator:
                             raise ValueError(execution.error_message)
                             
                         self._query_cache.set(cache_key, execution)
-                        # Success! Break the loop
                         break
 
                     except Exception as e:
@@ -307,9 +353,7 @@ class QueryOrchestrator:
                 else:
                     break
 
-            # ==========================================
             # ULTIMATE FAILURE FALLBACK
-            # ==========================================
             if execution is None or (hasattr(execution, "error_message") and execution.error_message):
                 failed_msg = "I encountered a technical error while querying the database and could not resolve it. Please try rephrasing your question."
                 try:
@@ -328,9 +372,7 @@ class QueryOrchestrator:
                     meta=build_debug_meta("execution_failed", sql=sql_result.sql if sql_result else "", sql_prompt=debug_sql_prompt),
                 )
 
-            # ==========================================
             # DYNAMIC SYNTHESIS
-            # ==========================================
             explanation = "Here are the results I found for your query:"
             debug_synthesis_prompt = None
             
@@ -340,8 +382,8 @@ class QueryOrchestrator:
                     debug_synthesis_prompt = self._prompt_builder.build_synthesis_prompt(
                         question=final_query,
                         data_preview=data_preview,
-                        row_count=execution.row_count,       # Add this line
-                        executed_sql=execution.executed_sql  # Add this line
+                        row_count=execution.row_count,       
+                        executed_sql=execution.executed_sql  
                     )
                     explanation = await asyncio.to_thread(
                         call_llm, prompt=debug_synthesis_prompt, max_tokens=150, temperature=0.3
@@ -361,7 +403,7 @@ class QueryOrchestrator:
             confidence = 0.95 if execution.row_count > 0 else 0.85
             exec_status = f"Success ({execution.row_count} rows)" if execution.row_count > 0 else "Success (0 rows)"
 
-            # --- UPDATE MEMORY PIPELINE FOR SUCCESSFUL QUERIES ---
+            # UPDATE MEMORY PIPELINE 
             try:
                 await self._memory_manager.update_memory_pipeline(
                     user_id=session_ctx.user_id, 
@@ -374,7 +416,36 @@ class QueryOrchestrator:
                     execution_status=exec_status, 
                 )
             except Exception as e:
-                logger.error(f"CRITICAL: Memory pipeline failed to save to text files: {e}")
+                logger.error(f"CRITICAL: Memory pipeline failed: {e}")
+
+            # ==========================================
+            # SAVE THE DIALOGUE STATE FOR FOLLOW-UPS
+            # ==========================================
+            try:
+                last_state = LastQueryState(
+                    user_id=session_ctx.user_id,
+                    session_id=session_ctx.session_id,
+                    original_question=user_question,
+                    corrected_question=final_query,
+                    generated_sql=sql_result.sql,
+                    executed_sql=execution.executed_sql,
+                    execution_status=exec_status,
+                    answer=explanation,
+                    rows=execution.rows,
+                    row_count=execution.row_count,
+                    truncated=execution.truncated,
+                    dialogue_state=DialogueState(
+                        last_sql=execution.executed_sql,
+                        last_standalone_question=final_query,
+                        last_answer_summary=explanation,
+                        pending_clarification=None # Clear pending clarification on success
+                    )
+                )
+                await self._conversation_state_store.save_last_query_state(
+                    session_ctx.user_id, session_ctx.session_id, last_state
+                )
+            except Exception as e:
+                logger.error(f"Failed to save conversation state: {e}")
 
             log_event("info", "query_completed", strategy=sql_result.strategy, rows=execution.row_count)
 

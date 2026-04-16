@@ -648,18 +648,18 @@
         ]
     },
     "business_rules": [
-        "Use 'lead_time' for time-series filtering and aggregations if the user mentions specific timeframes.",
-        "Use 'arrival_date' for time-series filtering and aggregations if the user mentions specific timeframes.",
-        "Use 'arrival_year' for time-series filtering and aggregations if the user mentions specific timeframes.",
-        "Use 'delivery_date' for time-series filtering and aggregations if the user mentions specific timeframes.",
         "Use 'order_date' for time-series filtering and aggregations if the user mentions specific timeframes.",
+        "Use 'arrival_year' for time-series filtering and aggregations if the user mentions specific timeframes.",
         "'shipping_cost' is a monetary field. Default to SUM() or AVG() when aggregating.",
-        "CRITICAL: Never apply status filters (like removing canceled/deleted records) if the user asks for 'total number of rows', 'exact count', or 'all records'.",
-        "'price' is a monetary field. Default to SUM() or AVG() when aggregating.",
-        "If calculating total duration, ensure 'no_of_weekend_nights' is summed correctly.",
         "'avg_price_per_room' is a monetary field. Default to SUM() or AVG() when aggregating.",
+        "Use 'delivery_date' for time-series filtering and aggregations if the user mentions specific timeframes.",
+        "CRITICAL: Never apply status filters (like removing canceled/deleted records) if the user explicitly asks for them, asks for 'total number of rows', 'exact count', or 'all records'.",
+        "Use 'lead_time' for time-series filtering and aggregations if the user mentions specific timeframes.",
         "If calculating total duration, ensure 'no_of_week_nights' is summed correctly.",
-        "When calculating active revenue or active metrics, exclude 'booking_status' values like 'Canceled' or 'Deleted'."
+        "Default to excluding 'booking_status' values like 'Canceled' or 'Deleted' for general revenue queries, UNLESS the user explicitly asks for canceled/deleted data.",
+        "If calculating total duration, ensure 'no_of_weekend_nights' is summed correctly.",
+        "'price' is a monetary field. Default to SUM() or AVG() when aggregating.",
+        "Use 'arrival_date' for time-series filtering and aggregations if the user mentions specific timeframes."
     ],
     "constraints": [
         "Always LIMIT 10 unless specified",

@@ -113,11 +113,14 @@ def build_ontology(columns):
 # =========================
 # BUSINESS RULE GENERATOR 🔥
 # =========================
+# =========================
+# BUSINESS RULE GENERATOR 🔥
+# =========================
 def generate_business_rules(profile):
     rules = []
     
     # 1. A global foundational rule to prevent raw count hallucinations
-    rules.append("CRITICAL: Never apply status filters (like removing canceled/deleted records) if the user asks for 'total number of rows', 'exact count', or 'all records'.")
+    rules.append("CRITICAL: Never apply status filters (like removing canceled/deleted records) if the user explicitly asks for them, asks for 'total number of rows', 'exact count', or 'all records'.")
 
     for col, meta in profile.items():
         col_lower = col.lower()
@@ -128,7 +131,7 @@ def generate_business_rules(profile):
         # 2. Smart Status Rule (Softened)
         if "status" in col_lower or "state" in col_lower:
             if any("cancel" in s or "delet" in s or "fail" in s for s in samples):
-                rules.append(f"When calculating active revenue or active metrics, exclude '{col}' values like 'Canceled' or 'Deleted'.")
+                rules.append(f"Default to excluding '{col}' values like 'Canceled' or 'Deleted' for general revenue queries, UNLESS the user explicitly asks for canceled/deleted data.")
                 
         # 3. Smart Monetary Rule
         if any(keyword in col_lower for keyword in ["price", "amount", "revenue", "cost", "fee"]):
@@ -276,8 +279,12 @@ def build_context(source, output):
 # =========================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("source")
-    parser.add_argument("--out", default="app/data/business_context.json")
+    parser.add_argument("source", help="The database URI or file path")
+    parser.add_argument("--tenant", default="hotel", help="The tenant ID (e.g., hotel, ecommerce)")
 
     args = parser.parse_args()
-    build_context(args.source, args.out)
+    
+    # Dynamically build the exact output path your API expects!
+    out_path = f"app/data/{args.tenant}_context.json"
+    
+    build_context(args.source, out_path)

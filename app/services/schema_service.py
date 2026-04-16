@@ -1,4 +1,4 @@
-#app/services/schema_service.py
+# app/services/schema_service.py
 """Cached live-schema access and prompt enrichment from Universal Context."""
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ logger = get_logger(__name__)
 
 _KEYWORD_PATTERN = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]+")
 _DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-_BUSINESS_CONTEXT_PATH = _DATA_DIR / "business_context.json"
 
 
 @dataclass
@@ -37,6 +36,13 @@ class UniversalSchema:
             return list(self.schema_dict.keys())[0]
         return self.dataset_name
 
+    @property
+    def columns(self) -> list[str]:
+        all_cols = []
+        for cols in self.schema_dict.values():
+            all_cols.extend(cols)
+        return all_cols
+    
     def to_prompt_block(self) -> str:
         """Used when the user explicitly asks 'what is the schema?'"""
         lines = [
@@ -54,26 +60,34 @@ class UniversalSchema:
 class SchemaService:
     """Expose cached schema metadata and examples from the dynamic JSON."""
 
-    # Note: We accept `repository` to prevent breaking your dependency_injection.py, 
-    # but we no longer use it because we read from the Universal JSON now.
     def __init__(self, repository: Any = None) -> None:
         self._cache: TTLCache[UniversalSchema] = TTLCache(settings.schema_cache_ttl_seconds)
 
-    async def get_schema(self, force_refresh: bool = False) -> UniversalSchema:
-        """Loads the schema universally from the dynamic extractor's output."""
-        cache_key = "universal_schema_state"
-        if not force_refresh and (cached := self._cache.get(cache_key)) is not None:
-            return cached
+    async def get_schema(self, tenant_id: str = "default", force_refresh: bool = False) -> UniversalSchema:
+        """Loads the schema universally from business_context.json."""
+        cache_key = f"universal_schema_state_{tenant_id}"
+        
+        if not force_refresh:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return cached
 
-        if not _BUSINESS_CONTEXT_PATH.exists():
+        # STRICTLY use business_context.json
+        context_path = _DATA_DIR / "business_context.json"
+
+        if not context_path.exists():
             logger.warning("business_context.json not found. Returning empty schema.")
             return UniversalSchema("unknown", "unknown", {}, "empty_fingerprint")
 
         try:
-            with open(_BUSINESS_CONTEXT_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            with open(context_path, "r", encoding="utf-8") as f:
+                raw_data = json.load(f)
             
-            dataset = data.get("dataset", "unknown")
+            # SMART FALLBACK: If the JSON has the tenant_id as a top-level key, use that block. 
+            # Otherwise, assume the whole file is the context.
+            data = raw_data.get(tenant_id, raw_data)
+            
+            dataset = data.get("dataset", tenant_id)
             dialect = data.get("target_dialect", "unknown")
             schema_dict = data.get("schema", {})
             
@@ -94,14 +108,20 @@ class SchemaService:
             logger.error(f"Failed to load universal schema: {e}")
             return UniversalSchema("error", "error", {}, "error_fingerprint")
 
-    def select_examples(self, question: str, limit: int = 3) -> str:
+    def select_examples(self, question: str, tenant_id: str = "default", limit: int = 3) -> str:
         """Return only examples that overlap with the current question."""
-        if not _BUSINESS_CONTEXT_PATH.exists():
+        # STRICTLY use business_context.json
+        context_path = _DATA_DIR / "business_context.json"
+        
+        if not context_path.exists():
             return ""
             
         try:
-            with open(_BUSINESS_CONTEXT_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            with open(context_path, "r", encoding="utf-8") as f:
+                raw_data = json.load(f)
+            
+            # Smart fallback for nested vs flat JSON
+            data = raw_data.get(tenant_id, raw_data)
             
             examples = data.get("examples", [])
             if not examples:

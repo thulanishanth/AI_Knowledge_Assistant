@@ -1,3 +1,4 @@
+# app/infrastructure/repositories/schema_repository.py
 """Repository for dynamic schema inspection backed by Universal Context JSON."""
 
 from __future__ import annotations

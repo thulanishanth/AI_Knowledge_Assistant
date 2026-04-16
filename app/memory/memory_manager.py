@@ -65,14 +65,21 @@ class MemoryManager:
                 )
                 return []
 
+
+    
     async def get_context_for_llm(
         self,
         user_id: str,
         session_id: str,
         user_query: str,
-        rag_context: str | None = None,
         include_vector: bool = True,
-    ) -> dict[str, Any]:
+        rag_context: str | None = None,
+        tenant_id: str = "hotel", 
+    ) -> dict[str, str | list[dict[str, object]]]:
+        # 1. Local RAG context fallback
+        if not rag_context:
+            # Pass the tenant_id to the retriever!
+            rag_context = retrieve_dynamic_rag_context(tenant_id) 
         """Assemble vector, window, summary, and RAG context."""
         with tracing.span("memory.get_context_for_llm"), metrics.timer("memory_context_assembly"):
             vector_results: list[dict[str, Any]] = []

@@ -15,23 +15,26 @@ logger = get_logger(__name__)
 _DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 _BUSINESS_CONTEXT_PATH = _DATA_DIR / "business_context.json"
 
-
-def _load_business_context() -> dict[str, Any]:
-    if not _BUSINESS_CONTEXT_PATH.exists():
-        logger.warning(f"Context file not found at {_BUSINESS_CONTEXT_PATH}")
+def _load_business_context(tenant_id: str) -> dict[str, Any]:
+    # Dynamically select the correct JSON file based on the tenant!
+    context_path = _DATA_DIR / f"{tenant_id}_context.json"
+    
+    if not context_path.exists():
+        logger.warning(f"Context file not found for tenant: {tenant_id}")
         return {}
 
     try:
-        return json.loads(_BUSINESS_CONTEXT_PATH.read_text(encoding="utf-8"))
+        return json.loads(context_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("Failed to load local business context: %s", exc)
+        logger.warning(f"Failed to load context for {tenant_id}: {exc}")
         return {}
 
+def retrieve_dynamic_rag_context(tenant_id: str = "default") -> str:
+    business_context = _load_business_context(tenant_id)
+    # ... rest of your formatting logic stays exactly the same ...
 
-def retrieve_dynamic_rag_context() -> str:
-    """Build schema-aware context from local schema and rich semantic JSON assets."""
-    business_context = _load_business_context()
-    
+
+
     if not business_context:
         return "Warning: No business context found. Operating with default assumptions."
 

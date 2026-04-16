@@ -1,5 +1,4 @@
 # app/services/prompt_builder.py
-#app/services/prompt_builder.py
 from __future__ import annotations
 
 import json
@@ -26,12 +25,14 @@ class PromptBuilder:
         "missing_context": [],
     }
 
+   # --- UPDATED PLAN SCHEMA ---
     PLAN_SCHEMA = {
+        "thought_process": "Write 1-2 sentences explaining your logical reasoning before choosing the route.", # <--- CHANGED
         "route": "database_query | clarify | schema_answer | show_sql | show_source | explain_last_answer | general_answer | diagnose | teach_rule",
         "standalone_question": "Resolved, explicit version of the question.",
         "user_goal": "Short summary of what the user wants.",
         "needs_clarification": False,
-        "clarifying_question": "",
+        "clarifying_question": "If routing to clarify, state exactly what is confusing or contradictory.", # <--- CHANGED
         "requires_schema": True,
         "requires_business_mapping": False,
         "follow_up_strategy": "none | refinement | drill_down | new_metric | correction",
@@ -41,7 +42,7 @@ class PromptBuilder:
         "date_range": None,
         "comparison_target": None,
     }
-
+    
     CRITIC_SCHEMA = {
         "verdict": "approve | clarify | replan",
         "reason": "",
@@ -112,25 +113,23 @@ Task: Write a 1-to-2 sentence response. Inform the user you don't know how to de
         state = self._trim(dialogue_state, 1000) or "(none)"
 
         return f"""
-You are Stage 1 and Stage 2 of a planning pipeline for a database-grounded assistant.
+You are Stage 1 of a planning pipeline for a database assistant.
 
 Your job:
-1. Normalize the user's wording.
-2. Resolve follow-up context such as pronouns, "same as before", "only canceled ones", or "why?".
-3. Produce a standalone question for downstream routing.
+1. Detect if the user's new message is a follow-up to the previous conversation.
+2. Produce a standalone question that resolves pronouns and context.
 
 Return ONLY valid JSON. No markdown. No explanations.
 
 Rules:
-1. Resolve pronouns and follow-up references using the recent context and dialogue state.
-2. CRITICAL: If the `Dialogue State` shows a `pending_clarification`, and the user's message is answering it, you MUST substitute their answer into the standalone question (e.g., if they say "cost is 0", replace "free stay" with "price is 0").
-3. If the request depends on missing context, list that in "missing_context".
-4. Keep "standalone_question" faithful to the user. Do not invent metrics or filters.
+1. If the user asks a drill-down question (e.g., Previous: "Revenue in 2018?", New: "What about October?"), you must REPLACE the old filter to form a logical new question (e.g., "What was the revenue in October 2018?"). Do not just append contradictory words.
+2. If the request depends on missing context, list that in "missing_context".
+3. Set "is_follow_up" to true if the user's message refers to or modifies the previous query.
 
 Recent conversation window:
 {context}
 
-Current Dialogue State (Last metrics, filters, pending clarifications):
+Current Dialogue State (Last metrics, filters):
 {state}
 
 User question:
@@ -140,6 +139,7 @@ Return exactly this JSON schema:
 {self._schema_block(self.REWRITE_SCHEMA)}
 """.strip()
 
+    # --- UPDATED PLAN PROMPT ---
     def build_plan_prompt(
         self,
         user_question: str,
@@ -155,7 +155,7 @@ Return exactly this JSON schema:
         return f"""
 You are Stage 3 of a planning pipeline for a database-grounded business assistant.
 
-Your job is to choose the next safe action for the user's request.
+Your job is to evaluate the user's request against our Database Schema and Semantic Ontology, then choose the safest next action.
 
 Return ONLY valid JSON. No markdown. No explanations.
 
@@ -170,15 +170,13 @@ Allowed routes:
 - "teach_rule": The user is explicitly correcting a rule, defining a term, or saying "remember that X means Y".
 - "general_answer": Greetings, thanks, or non-database chat.
 
-Rules:
-1. Prefer "clarify" over risky guessing when critical context is missing.
-2. CRITICAL: If the Dialogue State has a `pending_clarification` and the user just provided the missing info, route to "database_query". DO NOT repeat the exact same clarifying question.
-3. Use "requires_business_mapping" only when aliases, acronyms, vendors, or business shorthand need approved mapping.
-4. For "general_answer", do not route database questions away from data unless they are truly general chat.
-5. Populate dimensions, filters, date_range, and comparison_target only when grounded in the request.
-6. Confidence must be between 0 and 1.
+Rules for Routing & Ontology:
+1. ONTOLOGY CHECK: Read the "DATABASE SCHEMA" and "ONTOLOGY & SYNONYMS" in the context below. If the user asks for a specific metric (e.g. "revenue") and our ontology maps that to a column, route to "database_query". 
+2. THE CLARIFICATION ROUTER: Only route to 'clarify' if the question is fundamentally impossible to answer, completely missing context, or logically contradictory. If the user asks for a metric like 'revenue' or 'sales', use your best judgment to map it to the closest financial column (like 'price' or 'avg_price_per_room'). Be brave. Do not ask for clarification for minor vocabulary differences.
+3. Use the "thought_process" key to explicitly write out your logic before selecting a route.
+4. Confidence must be between 0 and 1.
 
-Recent conversation window:
+Context (Schema, Ontology, and Recent Conversation):
 {context}
 
 Current Dialogue State:
@@ -398,12 +396,8 @@ You are a deterministic MySQL SQL generator.
 Your job:
 Convert the user's business question into ONE correct SQL query.
 
-Target table:
-{schema.table_name}
-
 Hard rules:
-- Use ONLY this table: {schema.table_name}
-- Use ONLY columns that appear in the schema below
+- Use ONLY tables and columns that appear in the schema below
 - Output ONLY SQL
 - No markdown
 - No explanation
@@ -415,8 +409,6 @@ Hard rules:
 INSUFFICIENT_CONTEXT
 - Keep the result bounded with LIMIT {settings.max_query_results} UNLESS using aggregate functions (COUNT, AVG, SUM, MIN, MAX) without a GROUP BY.
 - Prefer simple, correct SQL over clever SQL
-- When filtering text categories, use exact values only if supported by provided business context
-- If a metric formula is not explicitly defined in the business rules, do not invent it
 
 Schema:
 {schema_block}
@@ -433,7 +425,7 @@ User question:
 Output:
 SQL only
 """.strip()
-
+    
     def build_sql_repair_prompt(
         self,
         question: str,
@@ -451,12 +443,7 @@ SQL only
 You are repairing a failed SQL query.
 
 Return ONLY corrected SQL.
-No markdown.
-No explanation.
-No comments.
-
-Target table:
-{schema.table_name}
+No markdown. No explanation. No comments.
 
 Question:
 {question}
@@ -479,16 +466,15 @@ Validation / execution issues:
 Repair rules:
 - Keep only one statement
 - Use only SELECT or WITH ... SELECT
-- Use only table {schema.table_name}
-- Use only columns from the schema
-- Keep the result bounded with LIMIT {settings.max_query_results} UNLESS using aggregate functions (COUNT, AVG, SUM, MIN, MAX) without a GROUP BY.
+- Use only tables and columns from the schema
+- Keep the result bounded with LIMIT {settings.max_query_results} UNLESS using aggregate functions.
 - If the question still cannot be answered safely, return exactly:
 INSUFFICIENT_CONTEXT
 
 Output:
 SQL only
 """.strip()
-
+    
     def build_synthesis_prompt(
         self,
         question: str,

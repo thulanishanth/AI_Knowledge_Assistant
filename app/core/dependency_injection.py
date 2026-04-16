@@ -1,4 +1,4 @@
-#app/core/dependency_injection.py
+# app/core/dependency_injection.py
 """Lightweight dependency injection container."""
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from app.services.schema_service import SchemaService
 from app.services.sql_execution_service import SQLExecutionService
 from app.services.sql_generation_service import SQLGenerationService
 from app.vector_store.chroma_adapter import ChromaAdapter
+from app.services.conversation_state_store import ConversationStateStore
 
 
 class SessionManager:
@@ -91,8 +92,11 @@ class ServiceContainer:
         )
         self.sql_execution_service = SQLExecutionService()
         self.response_formatter = ResponseFormatter()
+        
+        # Initialize the State Store for Follow-Ups
+        self.conversation_state_store = ConversationStateStore()
 
-        # Inject PromptBuilder into QueryOrchestrator
+        # Inject PromptBuilder and State Store into QueryOrchestrator
         self.query_orchestrator = QueryOrchestrator(
             session_manager=self.session_manager,
             memory_manager=self.memory_manager,
@@ -102,6 +106,7 @@ class ServiceContainer:
             sql_execution_service=self.sql_execution_service,
             response_formatter=self.response_formatter,
             prompt_builder=self.prompt_builder,
+            conversation_state_store=self.conversation_state_store,
         )
 
     async def initialize(self) -> None:
