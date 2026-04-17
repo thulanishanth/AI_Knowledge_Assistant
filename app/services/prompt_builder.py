@@ -106,10 +106,11 @@ Task: Write a 1-to-2 sentence response. Inform the user you don't know how to de
     def build_rewrite_prompt(
         self,
         user_question: str,
-        recent_context: str = "",
+        chat_history: str = "",
         dialogue_state: str = "",
     ) -> str:
-        context = self._trim(recent_context, 2000) or "(none)"
+        # Changed recent_context to chat_history to make it explicit
+        history = self._trim(chat_history, 2000) or "(No recent history.)"
         state = self._trim(dialogue_state, 1000) or "(none)"
 
         return f"""
@@ -127,7 +128,7 @@ Rules:
 3. Set "is_follow_up" to true if the user's message refers to or modifies the previous query.
 
 Recent conversation window:
-{context}
+{history}
 
 Current Dialogue State (Last metrics, filters):
 {state}
@@ -386,7 +387,7 @@ Ask them which rule or filter was incorrect. Tell them they can correct you by r
         session_context: str = "",
         examples_context: str = "",
     ) -> str:
-        business_rules = self._trim(session_context, 3500) or "(none)"
+        business_rules = self._trim(session_context, 8000) or "(none)"
         examples = self._trim(examples_context, 2500) or "(none)"
         schema_block = schema.to_prompt_block()
 
@@ -435,7 +436,7 @@ SQL only
         errors: list[str],
         examples_context: str = "",
     ) -> str:
-        business_rules = self._trim(session_context, 3500) or "(none)"
+        business_rules = self._trim(session_context, 8000) or "(none)"
         examples = self._trim(examples_context, 2500) or "(none)"
         error_block = "\n".join(f"- {item}" for item in errors) if errors else "- Invalid SQL"
 

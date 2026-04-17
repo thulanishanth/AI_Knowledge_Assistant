@@ -3,6 +3,8 @@
 
 import time
 import os
+import json
+from typing import Any
 from openai import OpenAI
 
 from app.core.settings import settings
@@ -27,7 +29,6 @@ def _get_client() -> OpenAI:
             api_key=api_key,
         )
     return _client
-
 
 def call_llm(
     prompt: str,
@@ -84,3 +85,58 @@ def call_llm(
                 raise RuntimeError("LLM API is currently unreachable, timing out, or out of credits.") from e
 
     raise RuntimeError("All LLM generation attempts exhausted.")
+
+def call_llm_with_tool(
+    prompt: str,
+    tool_schema: dict[str, Any],
+    tool_name: str,
+    max_tokens: int = 500,
+    max_retries: int | None = None,
+    temperature: float | None = None
+) -> dict[str, Any]:
+    """
+    Natively calls the LLM and strictly forces it to return data matching
+    a specific Tool (Function) schema. 
+    """
+    # Fallback to defaults if not provided
+    retries = max_retries if max_retries is not None else 3
+    temp = temperature if temperature is not None else 0.0
+    client = _get_client() 
+
+    logger.info(f"\n{'='*70}\n🛠️ [SENDING TOOL CALL TO LLM: {tool_name}] 🛠️\n{'-'*70}\n{prompt.strip()[:200]}...\n{'='*70}\n")
+
+    for attempt in range(retries):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo", # Explicitly set to GPT-3.5-Turbo as requested
+                messages=[{"role": "user", "content": prompt}],
+                tools=[{"type": "function", "function": tool_schema}],
+                # Force the model to use the exact tool we provided
+                tool_choice={"type": "function", "function": {"name": tool_name}},
+                temperature=temp,
+                max_tokens=max_tokens
+            )
+
+            # Extract the arguments the LLM generated for the tool
+            tool_calls = response.choices[0].message.tool_calls
+            if tool_calls:
+                arguments_str = tool_calls[0].function.arguments
+                return json.loads(arguments_str)
+
+            return {}
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse tool arguments as JSON on attempt {attempt + 1}: {e}")
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt)
+            else:
+                return {}
+        except Exception as e:
+            logger.warning(f"Attempt {attempt + 1}: LLM tool call failed ({e}).")
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt)
+            else:
+                logger.error(f"Native Tool Call failed entirely after {retries} attempts.")
+                return {}
+
+    return {}

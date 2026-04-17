@@ -117,12 +117,17 @@ class QueryOrchestrator:
             )
             dialogue_state_str = json.dumps(dialogue_state_obj.to_prompt_payload())
 
+            formatted_history = "\n".join(
+                [f"{msg.get('role', 'user').upper()}: {msg.get('content', '')}" for msg in debug_window[-4:]]
+            )
+            
             # --- 2. Let the LLM figure out exactly what the user wants! ---
             analysis = await asyncio.to_thread(
                 self._intent_service.analyze, 
                 user_question=sanitized.normalized, 
                 memory_context=session_context,
-                dialogue_state=dialogue_state_str
+                dialogue_state=dialogue_state_str,
+                chat_history=formatted_history
             )
             
             intent = analysis.get("route", "database_query")
@@ -317,7 +322,7 @@ class QueryOrchestrator:
                 if execution is None:
                     try:
                         # 3. Dynamically load the exact database URI for this tenant!
-                        context_path = Path(__file__).resolve().parent.parent / "data" / "business_context.json"
+                        context_path = Path(__file__).resolve().parent.parent / "data" / f"{tenant_id}_context.json"
                         category = "relational_db"
                         
                         # Default fallback URI
