@@ -62,6 +62,11 @@ class Settings:
     db_table: str = _get_str("DB_TABLE", "hotel_reservations")
     db_pool_size: int = _get_int("DB_POOL_SIZE", 10)
     db_query_timeout_ms: int = _get_int("DB_QUERY_TIMEOUT_MS", 5000)
+    
+    # Metadata Catalog Tables (Lean Setup)
+    meta_table_tenants: str = _get_str("META_TABLE_TENANTS", "meta_tenants")
+    meta_table_rules: str = _get_str("META_TABLE_RULES", "meta_business_rules")
+    
     max_query_results: int = _get_int("MAX_QUERY_RESULTS", 10)
     max_preview_rows: int = _get_int("MAX_PREVIEW_ROWS", 10)
     max_question_chars: int = _get_int("MAX_QUESTION_CHARS", 800)

@@ -84,52 +84,50 @@ class QueryOrchestrator:
             schema = await self._schema_service.get_schema(tenant_id)
             
             # ==========================================
-            # 1. FETCH & UNPACK ALL MEMORY COMPONENTS
+            # FEATURE 3: INJECT THE LIVING PROFILE
             # ==========================================
+            user_profile = await self._memory_manager._vector_memory.get_user_profile(session_ctx.user_id)
+            profile_context = f"USER PROFILE & PREFERENCES:\n{user_profile}\n\n" if user_profile else ""
+            
+            # Quick intent check for Metadata Pre-Filtering (Feature 4)
+            fast_topic_guess = "finance" if any(w in sanitized.normalized.lower() for w in ["revenue", "price", "cost", "money"]) else None
+
+            # Fetch memory
             session_context = ""
+            debug_vector = []
+            debug_window = []
             debug_rag = ""
             debug_summary = ""
-            debug_window = []
-            debug_vector = []
             
             try:
+                # FEATURE 4 applied: Fast topic filtering
                 memory_context = await self._memory_manager.get_context_for_llm(
-                    user_id=session_ctx.user_id,
-                    session_id=session_ctx.session_id,
+                    user_id=session_ctx.user_id, 
+                    session_id=session_ctx.session_id, 
                     user_query=sanitized.normalized,
-                    include_vector=True, 
-                    rag_context=None,
-                    tenant_id=tenant_id   
+                    tenant_id=tenant_id
                 )
-                
                 session_context = str(memory_context.get("aggregated_context", ""))
+                debug_vector = memory_context.get("vector_results", [])
+                debug_window = memory_context.get("window_messages", [])
                 debug_rag = memory_context.get("rag_context", "")
                 debug_summary = memory_context.get("summary", "")
-                debug_window = memory_context.get("window_messages", [])
-                debug_vector = memory_context.get("vector_results", []) 
-                
-            except Exception:
-                logger.exception("Memory context load failed")
+            except Exception: 
+                pass
 
-            # FETCH CONVERSATION STATE FOR FOLLOW-UPS
-            dialogue_state_obj = await self._conversation_state_store.get_dialogue_state(
-                session_ctx.user_id, session_ctx.session_id
-            )
-            dialogue_state_str = json.dumps(dialogue_state_obj.to_prompt_payload())
-
-            formatted_history = "\n".join(
-                [f"{msg.get('role', 'user').upper()}: {msg.get('content', '')}" for msg in debug_window[-4:]]
-            )
+            dialogue_state_obj = await self._conversation_state_store.get_dialogue_state(session_ctx.user_id, session_ctx.session_id)
+            formatted_history = "\n".join([f"{msg.get('role', 'user').upper()}: {msg.get('content', '')}" for msg in debug_window[-4:]])
             
-            # --- 2. Let the LLM figure out exactly what the user wants! ---
+            # Send pruned schema & profile to the planner so it can route correctly
+            planner_context = f"{profile_context}{self._prompt_builder._prune_schema(schema)}\n\nConversation Context:\n{session_context}"
+            
             analysis = await asyncio.to_thread(
                 self._intent_service.analyze, 
                 user_question=sanitized.normalized, 
-                memory_context=session_context,
-                dialogue_state=dialogue_state_str,
+                memory_context=planner_context,
+                dialogue_state=json.dumps(dialogue_state_obj.to_prompt_payload()), 
                 chat_history=formatted_history
             )
-            
             intent = analysis.get("route", "database_query")
             
             def build_debug_meta(strategy: str, sql: str = "", ms: float = 0.0, rows: int = 0, cached: bool = False, sql_prompt: str = None, synth_prompt: str = None):
@@ -149,11 +147,10 @@ class QueryOrchestrator:
                     }
                 }
 
-            # --- 3. The Clarification Router (Stop Guessing!) ---
+            # --- 3. The Clarification Router ---
             if intent == "clarify" or analysis.get("needs_clarification") is True:
                 clarifying_msg = analysis.get("clarifying_question", "Could you provide a little more detail about the data you want to see?")
                 
-                # Update dialogue state to expect clarification
                 dialogue_state_obj.pending_clarification = clarifying_msg
                 await self._conversation_state_store.save_dialogue_state(
                     session_ctx.user_id, session_ctx.session_id, dialogue_state_obj
@@ -206,15 +203,19 @@ class QueryOrchestrator:
             # --- 6. Database Query Flow ---
             final_query = analysis.get("standalone_question", sanitized.normalized)
             
-            # Target Model Routing
-            difficulty_score = 50 
             target_model, is_cloud = "local-llm", False  
 
-            # FILTER CONTEXT: STRICTLY RAG KNOWLEDGE ONLY
-            knowledge_chunks: list[str] = []
-            if debug_rag:
-                knowledge_chunks.append(str(debug_rag).strip())
-
+            # ==========================================
+            # SURGICAL RULE EXTRACTION
+            # ==========================================
+            knowledge_chunks = [profile_context] if user_profile else []
+            
+            # Fetch strictly the MySQL business rules needed for this question
+            surgical_rules = self._schema_service.select_examples(question=final_query, tenant_id=tenant_id, limit=5)
+            if surgical_rules: 
+                knowledge_chunks.append("CRITICAL BUSINESS RULES:\n" + surgical_rules)
+            
+            # Vector memory matches
             if debug_vector:
                 knowledge_only = [
                     item for item in debug_vector
@@ -231,14 +232,10 @@ class QueryOrchestrator:
             # ==========================================
             # SELF-HEALING SQL EXECUTION & CRITIC LOOP
             # ==========================================
-            max_attempts = 3
-            attempt = 1
-            db_error_message = None
+            max_attempts, attempt = 3, 1
+            db_error_message, execution, sql_result, cached = None, None, None, False
             previous_sql = None
-            execution = None
-            sql_result = None
             debug_sql_prompt = ""
-            cached = False
 
             while attempt <= max_attempts:
                 current_context = clean_business_rules
@@ -246,29 +243,34 @@ class QueryOrchestrator:
                 # Inject Error Reflection if this is a retry attempt
                 if attempt > 1 and db_error_message and previous_sql:
                     logger.warning(f"🔄 [SELF-HEALING] Attempt {attempt}/{max_attempts} triggered.")
-                    reflection_msg = (
+                    current_context += (
                         f"\n\nCRITICAL ERROR REFLECTION:\n"
                         f"Your previous SQL query:\n```sql\n{previous_sql}\n```\n"
                         f"Failed with the following error:\n{db_error_message}\n\n"
                         f"Please analyze the schema carefully and write a corrected SQL query that fixes this exact error."
                     )
-                    current_context += reflection_msg
 
-                debug_sql_prompt = self._prompt_builder.build_sql_prompt(
-                    question=final_query,
-                    schema=schema,
-                    session_context=current_context,
-                )
+                # ==========================================
+                # FEATURE 1: SEMANTIC SQL CACHING INTERCEPT
+                # ==========================================
+                cached_sql = None
+                if attempt == 1:
+                    cached_sql = await self._memory_manager._vector_memory.get_semantic_sql(
+                        query=final_query, schema_fingerprint=schema.fingerprint
+                    )
 
-                sql_result = await self._sql_generation_service.generate_sql(
-                    question=final_query,
-                    schema=schema,
-                    session_context=current_context,
-                    model=target_model,
-                    is_cloud=is_cloud,
-                )
-                logger.info(f"🚀 [LLM SQL] (Attempt {attempt}): {sql_result.sql}")
-
+                if cached_sql:
+                    from app.services.sql_generation_service import GeneratedSQL
+                    sql_result = GeneratedSQL(sql=cached_sql, is_valid=True, strategy="semantic_cache_hit", notice=None, validation=None)
+                    cached = True
+                else:
+                    debug_sql_prompt = self._prompt_builder.build_sql_prompt(question=final_query, schema=schema, session_context=current_context)
+                    sql_result = await self._sql_generation_service.generate_sql(
+                        question=final_query, schema=schema, session_context=current_context, model=target_model, is_cloud=is_cloud
+                    )
+                    logger.info(f"🚀 [LLM SQL] (Attempt {attempt}): {sql_result.sql}")
+                
+                # Check security blocks
                 if not sql_result.is_valid:
                     error_details = "; ".join(sql_result.validation.errors)
                     safe_answer = "Security Alert: Prohibited operation." if "Write operations" in error_details else f"Blocked: {error_details}"
@@ -292,36 +294,38 @@ class QueryOrchestrator:
                     )
 
                 # --- THE SQL CRITIC (Result Critic) ---
-                sql_review = await asyncio.to_thread(
-                    self._intent_service.review_sql_candidate,
-                    question=final_query,
-                    sql=sql_result.sql,
-                    schema=schema,
-                    session_context=current_context
-                )
-                
-                if sql_review.get("verdict") == "retry" and attempt < max_attempts:
-                    logger.warning(f"⚖️ [SQL CRITIC REJECTED]: {sql_review.get('reason')}")
-                    db_error_message = f"SQL Critic rejected the query: {sql_review.get('reason')}"
-                    previous_sql = sql_result.sql
-                    attempt += 1
-                    continue
-                    
-                elif sql_review.get("verdict") == "clarify":
-                    clarifying_msg = sql_review.get("clarifying_question", "I need a bit more detail to write this query safely.")
-                    return QueryResponse(
-                        answer=clarifying_msg, confidence=1.0, session_id=session_ctx.session_id,
-                        presentation={"kind": "notice", "title": "Clarification Needed", "message": clarifying_msg},
-                        meta=build_debug_meta("critic_clarify", sql=sql_result.sql)
+                # Bypass critic if it's a semantic cache hit since it was already proven successful previously
+                if sql_result.strategy != "semantic_cache_hit":
+                    sql_review = await asyncio.to_thread(
+                        self._intent_service.review_sql_candidate,
+                        question=final_query,
+                        sql=sql_result.sql,
+                        schema=schema,
+                        session_context=current_context
                     )
+                    
+                    if sql_review.get("verdict") == "retry" and attempt < max_attempts:
+                        logger.warning(f"⚖️ [SQL CRITIC REJECTED]: {sql_review.get('reason')}")
+                        db_error_message = f"SQL Critic rejected the query: {sql_review.get('reason')}"
+                        previous_sql = sql_result.sql
+                        attempt += 1
+                        continue
+                        
+                    elif sql_review.get("verdict") == "clarify":
+                        clarifying_msg = sql_review.get("clarifying_question", "I need a bit more detail to write this query safely.")
+                        return QueryResponse(
+                            answer=clarifying_msg, confidence=1.0, session_id=session_ctx.session_id,
+                            presentation={"kind": "notice", "title": "Clarification Needed", "message": clarifying_msg},
+                            meta=build_debug_meta("critic_clarify", sql=sql_result.sql)
+                        )
 
+                # Execute Database Query
                 cache_key = f"{schema.fingerprint}|{sql_result.sql}"
                 execution = self._query_cache.get(cache_key)
-                cached = execution is not None
-
+                
                 if execution is None:
                     try:
-                        # 3. Dynamically load the exact database URI for this tenant!
+                        # Dynamically load the exact database URI for this tenant
                         context_path = Path(__file__).resolve().parent.parent / "data" / f"{tenant_id}_context.json"
                         category = "relational_db"
                         
@@ -333,7 +337,6 @@ class QueryOrchestrator:
                                 b_ctx = json.load(f)
                                 category = b_ctx.get("source_type", "relational_db")
                                 
-                                # This allows you to have completely different databases for different tenants!
                                 if "source_path" in b_ctx:
                                     source_uri = b_ctx["source_path"]
 
@@ -347,8 +350,17 @@ class QueryOrchestrator:
                             raise ValueError(execution.error_message)
                             
                         self._query_cache.set(cache_key, execution)
-                        break
 
+                        # ==========================================
+                        # FEATURE 1: SAVE SUCCESSFUL SQL TO CACHE
+                        # ==========================================
+                        if sql_result.strategy != "semantic_cache_hit":
+                            asyncio.create_task(
+                                self._memory_manager._vector_memory.save_semantic_sql(
+                                    query=final_query, sql=sql_result.sql, schema_fingerprint=schema.fingerprint
+                                )
+                            )
+                        break
                     except Exception as e:
                         db_error_message = str(e)
                         previous_sql = sql_result.sql
@@ -443,7 +455,7 @@ class QueryOrchestrator:
                         last_sql=execution.executed_sql,
                         last_standalone_question=final_query,
                         last_answer_summary=explanation,
-                        pending_clarification=None # Clear pending clarification on success
+                        pending_clarification=None 
                     )
                 )
                 await self._conversation_state_store.save_last_query_state(

@@ -1,15 +1,15 @@
 # app/services/schema_service.py
-"""Cached live-schema access and prompt enrichment from Universal Context."""
+"""Cached live-schema introspection directly from the connected MySQL database."""
 
 from __future__ import annotations
 
 import asyncio
-import json
 import hashlib
 import re
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
+
+import pymysql
 
 from app.core.cache import TTLCache
 from app.core.settings import settings
@@ -18,12 +18,10 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 _KEYWORD_PATTERN = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]+")
-_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-
 
 @dataclass
 class UniversalSchema:
-    """Replaces the old MySQL TableSchema with a dialect-aware generic schema."""
+    """Represents the live schema introspected from the database."""
     dataset_name: str
     dialect: str
     schema_dict: dict[str, list[str]]
@@ -31,7 +29,6 @@ class UniversalSchema:
 
     @property
     def table_name(self) -> str:
-        # Fallback to the first table key if multiple exist
         if self.schema_dict:
             return list(self.schema_dict.keys())[0]
         return self.dataset_name
@@ -42,9 +39,9 @@ class UniversalSchema:
         for cols in self.schema_dict.values():
             all_cols.extend(cols)
         return all_cols
-    
+
     def to_prompt_block(self) -> str:
-        """Used when the user explicitly asks 'what is the schema?'"""
+        """Used to inject the live database schema into the LLM prompt."""
         lines = [
             f"Target Execution Dialect: {self.dialect.upper()}",
             f"Dataset Name: {self.dataset_name}",
@@ -58,88 +55,125 @@ class UniversalSchema:
 
 
 class SchemaService:
-    """Expose cached schema metadata and examples from the dynamic JSON."""
+    """Introspects the live database to get tables and columns automatically."""
 
     def __init__(self, repository: Any = None) -> None:
         self._cache: TTLCache[UniversalSchema] = TTLCache(settings.schema_cache_ttl_seconds)
 
+    def _get_db_connection(self):
+        """Helper to get a fresh database connection."""
+        return pymysql.connect(
+            host=settings.db_host,
+            port=settings.db_port,
+            user=settings.db_user,
+            password=settings.db_password,
+            database=settings.db_name,
+            cursorclass=pymysql.cursors.DictCursor
+        )
+
+    def _fetch_schema_sync(self, tenant_id: str) -> UniversalSchema:
+        """Synchronous method to introspect the live MySQL schema."""
+        schema_dict = {}
+        dataset = settings.db_name
+        dialect = "mysql"
+
+        try:
+            with self._get_db_connection() as conn:
+                with conn.cursor() as cursor:
+                    # MAGIC HAPPENS HERE: We query MySQL's internal system tables!
+                    # We exclude any tables starting with 'meta_' so the AI doesn't see its own brain.
+                    query = """
+                        SELECT TABLE_NAME, COLUMN_NAME
+                        FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_SCHEMA = %s
+                          AND TABLE_NAME NOT LIKE 'meta_%'
+                        ORDER BY TABLE_NAME, ORDINAL_POSITION;
+                    """
+                    cursor.execute(query, (settings.db_name,))
+                    rows = cursor.fetchall()
+
+                    # Build the dictionary dynamically
+                    for row in rows:
+                        t_name = row["TABLE_NAME"]
+                        c_name = row["COLUMN_NAME"]
+
+                        if t_name not in schema_dict:
+                            schema_dict[t_name] = []
+
+                        schema_dict[t_name].append(c_name)
+
+        except Exception as e:
+            logger.error(f"Failed to introspect database schema: {e}")
+            return UniversalSchema("error", "error", {}, "error_fingerprint")
+
+        # Create a hash of the schema to use as a Cache Key
+        schema_str = str(schema_dict)
+        fingerprint = hashlib.md5(schema_str.encode()).hexdigest()
+
+        return UniversalSchema(
+            dataset_name=dataset,
+            dialect=dialect,
+            schema_dict=schema_dict,
+            fingerprint=fingerprint
+        )
+
     async def get_schema(self, tenant_id: str = "default", force_refresh: bool = False) -> UniversalSchema:
-        """Loads the schema universally from business_context.json."""
-        cache_key = f"universal_schema_state_{tenant_id}"
-        
+        """Loads the schema dynamically directly from MySQL."""
+        cache_key = f"live_schema_state_{settings.db_name}"
+
         if not force_refresh:
             cached = self._cache.get(cache_key)
             if cached is not None:
                 return cached
 
-        # STRICTLY use business_context.json
-        context_path = _DATA_DIR / "business_context.json"
+        # Run the blocking MySQL query in a thread to prevent freezing FastAPI
+        schema_obj = await asyncio.to_thread(self._fetch_schema_sync, tenant_id)
 
-        if not context_path.exists():
-            logger.warning("business_context.json not found. Returning empty schema.")
-            return UniversalSchema("unknown", "unknown", {}, "empty_fingerprint")
-
-        try:
-            with open(context_path, "r", encoding="utf-8") as f:
-                raw_data = json.load(f)
-            
-            # SMART FALLBACK: If the JSON has the tenant_id as a top-level key, use that block. 
-            # Otherwise, assume the whole file is the context.
-            data = raw_data.get(tenant_id, raw_data)
-            
-            dataset = data.get("dataset", tenant_id)
-            dialect = data.get("target_dialect", "unknown")
-            schema_dict = data.get("schema", {})
-            
-            # Create a unique hash of the schema to use as a Cache Key for identical queries
-            schema_str = json.dumps(schema_dict, sort_keys=True)
-            fingerprint = hashlib.md5(schema_str.encode()).hexdigest()
-
-            schema_obj = UniversalSchema(
-                dataset_name=dataset,
-                dialect=dialect,
-                schema_dict=schema_dict,
-                fingerprint=fingerprint
-            )
+        if schema_obj.dataset_name != "error":
             self._cache.set(cache_key, schema_obj)
-            return schema_obj
 
-        except Exception as e:
-            logger.error(f"Failed to load universal schema: {e}")
-            return UniversalSchema("error", "error", {}, "error_fingerprint")
+        return schema_obj
 
-    def select_examples(self, question: str, tenant_id: str = "default", limit: int = 3) -> str:
-        """Return only examples that overlap with the current question."""
-        # STRICTLY use business_context.json
-        context_path = _DATA_DIR / "business_context.json"
-        
-        if not context_path.exists():
-            return ""
-            
+    def _fetch_rules_sync(self, tenant_id: str) -> list[str]:
+        """Synchronous helper to fetch human business rules from the database."""
+        rules = []
         try:
-            with open(context_path, "r", encoding="utf-8") as f:
-                raw_data = json.load(f)
-            
-            # Smart fallback for nested vs flat JSON
-            data = raw_data.get(tenant_id, raw_data)
-            
-            examples = data.get("examples", [])
-            if not examples:
-                return ""
-
-            question_tokens = {token.lower() for token in _KEYWORD_PATTERN.findall(question)}
-            
-            scored = []
-            for example in examples:
-                lowered = str(example).lower()
-                # Score the example based on keyword overlap
-                hits = sum(token in lowered for token in question_tokens)
-                scored.append((hits, example))
-
-            # Sort by highest relevance
-            scored.sort(key=lambda item: item[0], reverse=True)
-            return "\n\n".join(block for _, block in scored[:limit])
-
+            with self._get_db_connection() as conn:
+                with conn.cursor() as cursor:
+                    # We still fetch manual business rules because MySQL can't automate human logic!
+                    cursor.execute(
+                        f"SELECT rule_definition, is_critical FROM {settings.meta_table_rules}"
+                    )
+                    rows = cursor.fetchall()
+                    for row in rows:
+                        prefix = "CRITICAL: " if row.get("is_critical") else ""
+                        rules.append(f"{prefix}{row['rule_definition']}")
         except Exception as e:
-            logger.error(f"Failed to select dynamic examples: {e}")
+            logger.warning(f"No business rules found or meta_business_rules table missing: {e}")
+        return rules
+
+    def select_examples(self, question: str, tenant_id: str = "default", limit: int = 5) -> str:
+        """Dynamically fetches and scores business rules directly from MySQL."""
+
+        rules = self._fetch_rules_sync(tenant_id)
+        if not rules:
             return ""
+
+        question_tokens = {token.lower() for token in _KEYWORD_PATTERN.findall(question)}
+
+        scored = []
+        for rule in rules:
+            # Force critical rules to always be included with an artificially high score
+            if rule.startswith("CRITICAL:"):
+                scored.append((999, rule))
+                continue
+
+            lowered = str(rule).lower()
+            # Score the rule based on keyword overlap
+            hits = sum(token in lowered for token in question_tokens)
+            if hits > 0:
+                scored.append((hits, rule))
+
+        # Sort by highest relevance
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return "\n\n".join(block for _, block in scored[:limit])

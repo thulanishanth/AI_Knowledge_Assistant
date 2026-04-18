@@ -1,10 +1,11 @@
 # app/services/prompt_builder.py
+
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from app.core.settings import settings
-from app.infrastructure.repositories.schema_repository import TableSchema
 
 
 class PromptBuilder:
@@ -25,14 +26,13 @@ class PromptBuilder:
         "missing_context": [],
     }
 
-   # --- UPDATED PLAN SCHEMA ---
     PLAN_SCHEMA = {
-        "thought_process": "Write 1-2 sentences explaining your logical reasoning before choosing the route.", # <--- CHANGED
+        "thought_process": "Write 1-2 sentences explaining your logical reasoning before choosing the route.",
         "route": "database_query | clarify | schema_answer | show_sql | show_source | explain_last_answer | general_answer | diagnose | teach_rule",
         "standalone_question": "Resolved, explicit version of the question.",
         "user_goal": "Short summary of what the user wants.",
         "needs_clarification": False,
-        "clarifying_question": "If routing to clarify, state exactly what is confusing or contradictory.", # <--- CHANGED
+        "clarifying_question": "If routing to clarify, state exactly what is confusing or contradictory.",
         "requires_schema": True,
         "requires_business_mapping": False,
         "follow_up_strategy": "none | refinement | drill_down | new_metric | correction",
@@ -68,8 +68,34 @@ class PromptBuilder:
     def _schema_block(schema: dict[str, object]) -> str:
         return json.dumps(schema, ensure_ascii=True, indent=2)
 
-    def build_teaching_prompt(self, instruction: str, schema: TableSchema) -> str:
-        schema_block = schema.to_prompt_block()
+    def _prune_schema(self, schema: Any) -> str:
+        """Surgically removes irrelevant tables to save LLM tokens."""
+        if not hasattr(schema, 'schema_dict'):
+            # Fallback if an old schema object is passed
+            if hasattr(schema, 'to_prompt_block'):
+                return schema.to_prompt_block()
+            return str(schema)
+
+        # HIDE THESE TABLES FROM THE LLM!
+        excluded_tables = {"chat_messages", "customer_orders", "alembic_version"}
+        
+        schema_lines = [
+            f"Target Execution Dialect: {getattr(schema, 'dialect', 'MYSQL').upper()}",
+            f"Dataset Name: {getattr(schema, 'dataset_name', 'default')}",
+            "Schema Structure:"
+        ]
+        
+        for table_name, columns in schema.schema_dict.items():
+            if table_name.lower() in excluded_tables:
+                continue
+            schema_lines.append(f"\nTable: {table_name}")
+            for col in columns:
+                schema_lines.append(f"  {col}")
+                
+        return "\n".join(schema_lines)
+
+    def build_teaching_prompt(self, instruction: str, schema: Any) -> str:
+        schema_block = self._prune_schema(schema)
         return f"""
 You are a database dictionary builder. The user is teaching you a new business rule or definition.
 Translate their natural language instruction into a strict SQL WHERE clause condition based on the schema.
@@ -84,8 +110,8 @@ Return exactly this JSON schema:
 {self._schema_block(self.TEACHING_SCHEMA)}
 """.strip()
 
-    def build_data_aware_clarification_prompt(self, unresolved_terms: list[str], question: str, schema: TableSchema) -> str:
-        schema_block = schema.to_prompt_block()
+    def build_data_aware_clarification_prompt(self, unresolved_terms: list[str], question: str, schema: Any) -> str:
+        schema_block = self._prune_schema(schema)
         terms = ", ".join(unresolved_terms)
         return f"""
 You are an expert data analyst assistant.
@@ -109,7 +135,6 @@ Task: Write a 1-to-2 sentence response. Inform the user you don't know how to de
         chat_history: str = "",
         dialogue_state: str = "",
     ) -> str:
-        # Changed recent_context to chat_history to make it explicit
         history = self._trim(chat_history, 2000) or "(No recent history.)"
         state = self._trim(dialogue_state, 1000) or "(none)"
 
@@ -140,7 +165,6 @@ Return exactly this JSON schema:
 {self._schema_block(self.REWRITE_SCHEMA)}
 """.strip()
 
-    # --- UPDATED PLAN PROMPT ---
     def build_plan_prompt(
         self,
         user_question: str,
@@ -275,7 +299,7 @@ Return exactly this JSON schema:
         *,
         question: str,
         sql: str,
-        schema: TableSchema,
+        schema: Any,
         session_context: str = "",
         examples_context: str = "",
     ) -> str:
@@ -301,7 +325,7 @@ SQL candidate:
 {sql}
 
 Schema:
-{schema.to_prompt_block()}
+{self._prune_schema(schema)}
 
 Business rules and retrieved knowledge:
 {business_rules}
@@ -383,13 +407,13 @@ Ask them which rule or filter was incorrect. Tell them they can correct you by r
     def build_sql_prompt(
         self,
         question: str,
-        schema: TableSchema,
+        schema: Any,
         session_context: str = "",
         examples_context: str = "",
     ) -> str:
         business_rules = self._trim(session_context, 8000) or "(none)"
         examples = self._trim(examples_context, 2500) or "(none)"
-        schema_block = schema.to_prompt_block()
+        schema_block = self._prune_schema(schema)
 
         return f"""
 You are a deterministic MySQL SQL generator.
@@ -430,7 +454,7 @@ SQL only
     def build_sql_repair_prompt(
         self,
         question: str,
-        schema: TableSchema,
+        schema: Any,
         session_context: str,
         invalid_sql: str,
         errors: list[str],
@@ -450,7 +474,7 @@ Question:
 {question}
 
 Schema:
-{schema.to_prompt_block()}
+{self._prune_schema(schema)}
 
 Business rules:
 {business_rules}
