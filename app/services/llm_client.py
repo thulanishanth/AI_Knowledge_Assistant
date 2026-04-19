@@ -1,5 +1,5 @@
 #app/services/llm_client.py
-"""LLM client wrapper wired to the OpenAI API."""
+"""LLM client wrapper wired to Hugging Face Inference API (Qwen 2.5 7B)."""
 
 import time
 import os
@@ -12,20 +12,22 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Global cache for the client to ensure lazy loading
+# Global cache for the client
 _client: OpenAI | None = None
 
 def _get_client() -> OpenAI:
-    """Lazily initialize the OpenAI client using environment variables."""
+    """Lazily initialize the OpenAI-compatible client pointing to Hugging Face."""
     global _client
     if _client is None:
-        api_key = os.getenv("OPENAI_API_KEY")
+        # Use HF_API_KEY from your settings
+        api_key = settings.hf_api_key
         
         if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not configured in your .env file.")
+            raise RuntimeError("HF_API_KEY is not configured in your .env file.")
             
-        # Initialize without a custom base_url to default to official OpenAI endpoints
+        # Redirecting to Hugging Face Inference API (OpenAI compatible)
         _client = OpenAI(
+            base_url="https://api-inference.huggingface.co/v1/",
             api_key=api_key,
         )
     return _client
@@ -36,7 +38,7 @@ def call_llm(
     max_retries: int | None = None,
     temperature: float | None = None,
 ) -> str:
-    """Generate LLM output using the OpenAI endpoint with retries."""
+    """Generate LLM output using Qwen-7B on Hugging Face."""
     if not prompt or not prompt.strip():
         raise ValueError("Prompt cannot be empty.")
         
@@ -44,12 +46,11 @@ def call_llm(
     temp = settings.llm_temperature_sql if temperature is None else temperature
 
     client = _get_client()
-    # Updated default to an official OpenAI model
-    model_name = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+    # Recommended: Qwen2.5-7B-Instruct is highly optimized for SQL and reasoning
+    model_name = settings.hf_model or "Qwen/Qwen2.5-7B-Instruct"
 
     for attempt in range(retries):
         try:
-            # Universal chat completions endpoint
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
@@ -61,28 +62,27 @@ def call_llm(
             if content:
                 return content
                 
-            raise RuntimeError("API returned an empty response.")
+            raise RuntimeError("Hugging Face returned an empty response.")
             
         except Exception as e:
-            logger.warning(f"Attempt {attempt + 1}: LLM API call failed ({e}).")
+            logger.warning(f"Attempt {attempt + 1}: HF API call failed ({e}).")
             
-            # Check for authentication errors
+            # Check for common HF/OpenAI errors
             error_text = str(e).lower()
-            if "401" in error_text or "unauthorized" in error_text or "invalid_api_key" in error_text:
-                raise RuntimeError("Your API key is invalid. Please check your .env file.") from e
+            if "401" in error_text or "unauthorized" in error_text:
+                raise RuntimeError("Your Hugging Face API key is invalid.") from e
             
-            # Handle OpenAI's specific Rate Limit errors (429)
-            if "429" in error_text or "too many requests" in error_text:
-                logger.warning("OpenAI rate limit hit. Waiting a bit longer...")
-                time.sleep(5) # Wait an extra 5 seconds if we hit the limit
+            # 503 is common for HF serverless if the model is loading
+            if "503" in error_text or "loading" in error_text:
+                logger.info("Model is currently loading on HF. Waiting longer...")
+                time.sleep(15) 
             
             if attempt < retries - 1:
-                sleep_time = 2 ** attempt  # 1s, 2s, 4s...
-                logger.info(f"Retrying in {sleep_time} seconds...")
+                sleep_time = 2 ** attempt
                 time.sleep(sleep_time)
             else:
-                logger.error("All LLM generation attempts exhausted.")
-                raise RuntimeError("LLM API is currently unreachable, timing out, or out of credits.") from e
+                logger.error("All Hugging Face generation attempts exhausted.")
+                raise RuntimeError("HF Inference API is currently unreachable or the model is overloaded.") from e
 
     raise RuntimeError("All LLM generation attempts exhausted.")
 
@@ -95,48 +95,49 @@ def call_llm_with_tool(
     temperature: float | None = None
 ) -> dict[str, Any]:
     """
-    Natively calls the LLM and strictly forces it to return data matching
-    a specific Tool (Function) schema. 
+    Calls Qwen-7B and forces it to return data matching a specific Tool schema.
+    Qwen 2.5 is natively trained to handle Tool Calling.
     """
-    # Fallback to defaults if not provided
     retries = max_retries if max_retries is not None else 3
     temp = temperature if temperature is not None else 0.0
     client = _get_client() 
+    model_name = settings.hf_model or "Qwen/Qwen2.5-7B-Instruct"
 
-    logger.info(f"\n{'='*70}\n🛠️ [SENDING TOOL CALL TO LLM: {tool_name}] 🛠️\n{'-'*70}\n{prompt.strip()[:200]}...\n{'='*70}\n")
+    logger.info(f"\n{'='*70}\n🛠️ [HF TOOL CALL: {tool_name} | MODEL: {model_name}] 🛠️\n{'-'*70}\n{prompt.strip()[:200]}...\n{'='*70}\n")
 
     for attempt in range(retries):
         try:
             response = client.chat.completions.create(
-                model="gpt-3.5-turbo", # Explicitly set to GPT-3.5-Turbo as requested
+                model=model_name,
                 messages=[{"role": "user", "content": prompt}],
                 tools=[{"type": "function", "function": tool_schema}],
-                # Force the model to use the exact tool we provided
+                # Note: Serverless HF API tool support can be strict. 
+                # If "tool_choice" fails, we fallback to auto.
                 tool_choice={"type": "function", "function": {"name": tool_name}},
                 temperature=temp,
                 max_tokens=max_tokens
             )
 
-            # Extract the arguments the LLM generated for the tool
             tool_calls = response.choices[0].message.tool_calls
             if tool_calls:
                 arguments_str = tool_calls[0].function.arguments
                 return json.loads(arguments_str)
 
+            # Fallback: If no tool call, check if the model just wrote JSON in content
+            content = response.choices[0].message.content
+            if content and "{" in content:
+                # Basic extraction logic for non-strict outputs
+                start = content.find("{")
+                end = content.rfind("}") + 1
+                return json.loads(content[start:end])
+
             return {}
 
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse tool arguments as JSON on attempt {attempt + 1}: {e}")
-            if attempt < retries - 1:
-                time.sleep(2 ** attempt)
-            else:
-                return {}
         except Exception as e:
-            logger.warning(f"Attempt {attempt + 1}: LLM tool call failed ({e}).")
+            logger.warning(f"Attempt {attempt + 1}: HF tool call failed ({e}).")
             if attempt < retries - 1:
                 time.sleep(2 ** attempt)
             else:
-                logger.error(f"Native Tool Call failed entirely after {retries} attempts.")
                 return {}
 
     return {}

@@ -72,7 +72,7 @@ class QueryOrchestrator:
         user_question: str,
         user_id: str = "anonymous",
         session_id: str | None = None,
-        tenant_id: str = "hotel",
+        tenant_id: str = "default",
     ) -> QueryResponse:
         sanitized = sanitize_question(user_question)
         if not sanitized.normalized:
@@ -320,25 +320,16 @@ class QueryOrchestrator:
                         )
 
                 # Execute Database Query
+                # Execute Database Query
                 cache_key = f"{schema.fingerprint}|{sql_result.sql}"
                 execution = self._query_cache.get(cache_key)
                 
                 if execution is None:
                     try:
-                        # Dynamically load the exact database URI for this tenant
-                        context_path = Path(__file__).resolve().parent.parent / "data" / f"{tenant_id}_context.json"
-                        category = "relational_db"
-                        
-                        # Default fallback URI
+                        # 100% DYNAMIC CONNECTION: Driven entirely by your .env file
+                        # No JSON context scripts needed anymore!
                         source_uri = f"mysql+pymysql://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}"
-                        
-                        if context_path.exists():
-                            with open(context_path, "r", encoding="utf-8") as f:
-                                b_ctx = json.load(f)
-                                category = b_ctx.get("source_type", "relational_db")
-                                
-                                if "source_path" in b_ctx:
-                                    source_uri = b_ctx["source_path"]
+                        category = "relational_db"
 
                         execution = self._sql_execution_service.execute(
                             sql_query=sql_result.sql,

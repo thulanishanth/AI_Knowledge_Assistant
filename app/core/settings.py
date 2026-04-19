@@ -58,8 +58,8 @@ class Settings:
     db_port: int = _get_int("DB_PORT", 3306)
     db_user: str = _get_str("DB_USER", "root")
     db_password: str = _get_str("DB_PASSWORD", "")
-    db_name: str = _get_str("DB_NAME", "hotel_db")
-    db_table: str = _get_str("DB_TABLE", "hotel_reservations")
+    db_name: str = _get_str("DB_NAME", "")
+    db_table: str = _get_str("DB_TABLE", "")
     db_pool_size: int = _get_int("DB_POOL_SIZE", 10)
     db_query_timeout_ms: int = _get_int("DB_QUERY_TIMEOUT_MS", 5000)
     
@@ -72,7 +72,7 @@ class Settings:
     max_question_chars: int = _get_int("MAX_QUESTION_CHARS", 800)
 
     hf_api_key: str = _get_str("HF_API_KEY")
-    hf_model: str = _get_str("HF_MODEL", "katanemo/Arch-Router-1.5B")
+    hf_model: str = _get_str("HF_MODEL", "Qwen/Qwen2.5-7B-Instruct")
     cloud_api_key: str = _get_str("CLOUD_API_KEY")
     llm_timeout_seconds: float = _get_float("LLM_TIMEOUT_SECONDS", 30.0)
     llm_max_retries: int = _get_int("LLM_MAX_RETRIES", 2)

@@ -77,7 +77,7 @@ class PromptBuilder:
             return str(schema)
 
         # HIDE THESE TABLES FROM THE LLM!
-        excluded_tables = {"chat_messages", "customer_orders", "alembic_version"}
+        excluded_tables = {"chat_messages", "alembic_version"}
         
         schema_lines = [
             f"Target Execution Dialect: {getattr(schema, 'dialect', 'MYSQL').upper()}",

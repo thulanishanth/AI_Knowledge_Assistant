@@ -12,7 +12,7 @@ class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=800)
     user_id: str | None = Field(default=None, max_length=128)
     session_id: str | None = Field(default=None, max_length=128)
-    tenant_id: str = Field(default="hotel", description="Identifies the target dataset/client")
+    tenant_id: str = Field(default="default", description="Identifies the target dataset/client")
 
 
 class ChatResponse(BaseModel):
