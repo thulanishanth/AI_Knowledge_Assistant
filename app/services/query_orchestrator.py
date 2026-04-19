@@ -451,7 +451,47 @@ class QueryOrchestrator:
                 )
             except Exception as e:
                 logger.error(f"Failed to save conversation state: {e}")
+                
+            # ==========================================
+            # DYNAMIC LLM METRICS LOGGING (The Fix)
+            # ==========================================
+            try:
+                # 1. Define the Context Map for your supported models
+                CONTEXT_WINDOW_MAP = {
+                    "local-llm": 8192,
+                    "llama-3-8b": 8192,
+                    "mistral-v0.3": 32768,
+                    "qwen-2-7b": 32768,
+                    "gpt-4o": 128000,
+                    "gpt-4-turbo": 128000,
+                    "gpt-3.5-turbo": 16384
+                }
+                
+                # 2. Dynamically fetch the window size, defaulting to 8192 if unknown
+                actual_max_window = CONTEXT_WINDOW_MAP.get(target_model, 8192)
+                
+                # 3. Calculate estimated tokens
+                estimated_tokens = int(len(debug_sql_prompt.split()) * 1.3) if debug_sql_prompt else 0
+                
+                # 4. Dump the metrics
+                if hasattr(self._memory_manager, "dump_conversation"):
+                    await self._memory_manager.dump_conversation(
+                        user_query=final_query,
+                        ai_response=explanation,
+                        human_readable_prompt=debug_sql_prompt if debug_sql_prompt else "None",
+                        rag_context=clean_business_rules,
+                        generated_sql=sql_result.sql if sql_result else "None",
+                        execution_status=exec_status,
+                        llm_model_name=target_model,             
+                        max_context_window=actual_max_window,   
+                        estimated_tokens=estimated_tokens
+                    )
+            except Exception as e:
+                logger.error(f"Metrics Dumper failed: {e}")
 
+            # ==========================================
+            # RETURN FINAL RESPONSE
+            # ==========================================
             log_event("info", "query_completed", strategy=sql_result.strategy, rows=execution.row_count)
 
             return QueryResponse(
