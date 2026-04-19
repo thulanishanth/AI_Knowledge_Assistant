@@ -82,8 +82,13 @@ class SQLGenerationService:
         
         sql_candidate = self._extract_query(candidate)
         
-        # Guard validation (Note: If using NoSQL, you may need to bypass SqlGuard or make it dialect-aware later)
-        validation = self._sql_guard.validate(sql_candidate)
+        # Guard validation with strict schema enforcement
+        allowed = set(schema.schema_dict.keys())
+        validation = self._sql_guard.validate(
+            sql_candidate,
+            dialect=schema.dialect,
+            allowed_tables=allowed
+        )
 
         if validation.is_valid:
             return SqlGenerationResult(
@@ -104,7 +109,11 @@ class SQLGenerationService:
              return SqlGenerationResult(validation=SqlValidationResult(is_valid=False, errors=[str(e)]), notice=notice)
             
         repaired_sql = self._extract_query(repaired)
-        repaired_validation = self._sql_guard.validate(repaired_sql)
+        repaired_validation = self._sql_guard.validate(
+            repaired_sql,
+            dialect=schema.dialect,
+            allowed_tables=allowed
+        )
 
         return SqlGenerationResult(
             sql=repaired_validation.normalized_sql if repaired_validation.is_valid else repaired_sql,

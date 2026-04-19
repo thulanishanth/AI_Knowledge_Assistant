@@ -260,8 +260,16 @@ class QueryOrchestrator:
                     )
 
                 if cached_sql:
-                    from app.services.sql_generation_service import GeneratedSQL
-                    sql_result = GeneratedSQL(sql=cached_sql, is_valid=True, strategy="semantic_cache_hit", notice=None, validation=None)
+                    from app.services.sql_generation_service import SqlGenerationResult
+                    from app.security.sql_guard import SqlValidationResult
+                    
+                    sql_result = SqlGenerationResult(
+                        sql=cached_sql, 
+                        is_valid=True, 
+                        strategy="semantic_cache_hit", 
+                        notice=None, 
+                        validation=SqlValidationResult(is_valid=True, normalized_sql=cached_sql)
+                    )
                     cached = True
                 else:
                     debug_sql_prompt = self._prompt_builder.build_sql_prompt(question=final_query, schema=schema, session_context=current_context)
