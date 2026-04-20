@@ -82,25 +82,25 @@ class SchemaService:
                 with conn.cursor() as cursor:
                     # MAGIC HAPPENS HERE: We query MySQL's internal system tables!
                     # We exclude any tables starting with 'meta_' so the AI doesn't see its own brain.
-                    query = """
-                        SELECT TABLE_NAME, COLUMN_NAME
+                    cursor.execute("""
+                        SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_KEY
                         FROM INFORMATION_SCHEMA.COLUMNS
                         WHERE TABLE_SCHEMA = %s
-                          AND TABLE_NAME NOT LIKE 'meta_%'
+                          AND TABLE_NAME NOT LIKE 'meta_%%'
                         ORDER BY TABLE_NAME, ORDINAL_POSITION;
-                    """
-                    cursor.execute(query, (settings.db_name,))
+                    """, (settings.db_name,))
                     rows = cursor.fetchall()
 
-                    # Build the dictionary dynamically
                     for row in rows:
                         t_name = row["TABLE_NAME"]
                         c_name = row["COLUMN_NAME"]
-
+                        dtype  = row["DATA_TYPE"]
+                        pk     = " [PRIMARY KEY]" if row["COLUMN_KEY"] == "PRI" else ""
+                        
                         if t_name not in schema_dict:
                             schema_dict[t_name] = []
-
-                        schema_dict[t_name].append(c_name)
+                        
+                        schema_dict[t_name].append(f"- {c_name} ({dtype}){pk}")
 
         except Exception as e:
             logger.error(f"Failed to introspect database schema: {e}")
@@ -162,17 +162,24 @@ class SchemaService:
         question_tokens = {token.lower() for token in _KEYWORD_PATTERN.findall(question)}
 
         scored = []
+        seen_rules = set()
+
         for rule in rules:
+            clean_rule = str(rule).strip()
+            if clean_rule in seen_rules:
+                continue
+            seen_rules.add(clean_rule)
+
             # Force critical rules to always be included with an artificially high score
-            if rule.startswith("CRITICAL:"):
-                scored.append((999, rule))
+            if clean_rule.startswith("CRITICAL:"):
+                scored.append((999, clean_rule))
                 continue
 
-            lowered = str(rule).lower()
+            lowered = clean_rule.lower()
             # Score the rule based on keyword overlap
             hits = sum(token in lowered for token in question_tokens)
             if hits > 0:
-                scored.append((hits, rule))
+                scored.append((hits, clean_rule))
 
         # Sort by highest relevance
         scored.sort(key=lambda item: item[0], reverse=True)

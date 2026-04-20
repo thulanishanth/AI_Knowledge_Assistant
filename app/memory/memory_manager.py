@@ -109,14 +109,14 @@ class MemoryManager:
                 vector_context=vector_texts,
                 window_context=window_texts,
                 summary_context=summary,
-                rag_context=rag_context or "",
+                rag_context=rag_context,
             )
 
             return {
                 "vector_results": vector_results,
                 "window_messages": window_messages,
                 "summary": summary,
-                "rag_context": rag_context or "",
+                "rag_context": rag_context,
                 "aggregated_context": aggregated,
             }
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
@@ -22,6 +23,7 @@ from app.services.intent_service import IntentService
 from app.services.llm_client import call_llm
 from app.services.prompt_builder import PromptBuilder
 from app.services.conversation_state_store import ConversationStateStore, LastQueryState, DialogueState
+from app.services.rag_retriever import retrieve_dynamic_rag_context
 
 logger = get_logger(__name__)
 
@@ -38,6 +40,34 @@ class QueryResponse:
         yield self.answer
         yield self.confidence
         yield self.session_id
+
+
+def _extract_dialogue_fields(sql: str, question: str) -> dict:
+    """Pull metric/filter signals from a successful SQL for the dialogue state."""
+    sql_lower = sql.lower()
+    q_lower = question.lower()
+    
+    metric = None
+    for candidate in ["revenue", "price", "count", "sum", "avg", "total", "sales"]:
+        if candidate in q_lower:
+            metric = candidate
+            break
+    
+    date_range = None
+    date_match = re.search(r"\b(20\d{2})\b", sql)
+    if date_match:
+        date_range = date_match.group(1)
+    month_match = re.search(r"month\s*=\s*['\"]?(\w+)['\"]?", sql_lower)
+    if month_match:
+        date_range = (date_range or "") + f" {month_match.group(1)}"
+    
+    filters = {}
+    for m in re.finditer(r"(\w+)\s*=\s*'([^']+)'", sql):
+        col, val = m.group(1), m.group(2)
+        if col.lower() not in {"table_schema", "table_name"}:
+            filters[col] = val
+    
+    return {"metric": metric, "date_range": date_range.strip() if date_range else None, "filters": filters}
 
 
 class QueryOrchestrator:
@@ -100,12 +130,19 @@ class QueryOrchestrator:
             debug_summary = ""
             
             try:
+                # Fetch RAG context for this tenant
+                try:
+                    rag_context_str = await asyncio.to_thread(retrieve_dynamic_rag_context, tenant_id)
+                except Exception:
+                    rag_context_str = ""
+
                 # FEATURE 4 applied: Fast topic filtering
                 memory_context = await self._memory_manager.get_context_for_llm(
                     user_id=session_ctx.user_id, 
                     session_id=session_ctx.session_id, 
                     user_query=sanitized.normalized,
-                    tenant_id=tenant_id
+                    tenant_id=tenant_id,
+                    rag_context=rag_context_str,   # <-- now actually passed
                 )
                 session_context = str(memory_context.get("aggregated_context", ""))
                 debug_vector = memory_context.get("vector_results", [])
@@ -328,7 +365,6 @@ class QueryOrchestrator:
                         )
 
                 # Execute Database Query
-                # Execute Database Query
                 cache_key = f"{schema.fingerprint}|{sql_result.sql}"
                 execution = self._query_cache.get(cache_key)
                 
@@ -438,6 +474,7 @@ class QueryOrchestrator:
             # SAVE THE DIALOGUE STATE FOR FOLLOW-UPS
             # ==========================================
             try:
+                dfields = _extract_dialogue_fields(execution.executed_sql, final_query)
                 last_state = LastQueryState(
                     user_id=session_ctx.user_id,
                     session_id=session_ctx.session_id,
@@ -454,7 +491,11 @@ class QueryOrchestrator:
                         last_sql=execution.executed_sql,
                         last_standalone_question=final_query,
                         last_answer_summary=explanation,
-                        pending_clarification=None 
+                        pending_clarification=None,
+                        last_metric=dfields["metric"],
+                        last_date_range=dfields["date_range"],
+                        last_filters=dfields["filters"],
+                        last_route="database_query",
                     )
                 )
                 await self._conversation_state_store.save_last_query_state(

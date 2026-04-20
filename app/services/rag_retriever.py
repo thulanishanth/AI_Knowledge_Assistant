@@ -1,95 +1,110 @@
 # app/services/rag_retriever.py
-"""Local RAG context retrieval from project schema and semantic assets."""
+"""Continuous Sync Engine: Database Rules to Vector Memory."""
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
+import asyncio
+import time
+from uuid import uuid4
 from typing import Any
+
+import sqlalchemy as sa
 
 from app.core.logging import get_logger
 from app.core.settings import settings
+from app.infrastructure.database import db_manager
+from app.memory.vector_memory import VectorMemory
+from app.vector_store.vector_store_interface import VectorRecord
 
 logger = get_logger(__name__)
 
-_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-_BUSINESS_CONTEXT_PATH = _DATA_DIR / "business_context.json"
 
-def _load_business_context(tenant_id: str) -> dict[str, Any]:
-    # Dynamically select the correct JSON file based on the tenant!
-    context_path = _DATA_DIR / f"{tenant_id}_context.json"
+async def sync_database_rules_to_vector_store(vector_memory: VectorMemory, tenant_id: str = "default") -> int:
+    """
+    Pulls business rules, semantics, and constraints from the live database
+    and syncs them into the ChromaDB knowledge collection.
+    """
+    logger.info(f"Starting database-to-vector knowledge sync for tenant: {tenant_id}")
     
-    if not context_path.exists():
-        logger.warning(f"Context file not found for tenant: {tenant_id}")
-        return {}
-
+    # 1. Fetch live rules directly from MySQL
+    rules = []
     try:
-        return json.loads(context_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning(f"Failed to load context for {tenant_id}: {exc}")
-        return {}
+        with db_manager.engine.connect() as conn:
+            query = sa.text(f"SELECT rule_id, rule_definition, is_critical FROM {settings.meta_table_rules}")
+            result = conn.execute(query)
+            rules = [dict(row._mapping) for row in result]
+    except Exception as e:
+        logger.error(f"Failed to fetch rules from {settings.meta_table_rules}: {e}")
+        return 0
 
-def retrieve_dynamic_rag_context(tenant_id: str = "default") -> str:
-    business_context = _load_business_context(tenant_id)
-    # ... rest of your formatting logic stays exactly the same ...
+    if not rules:
+        logger.info("No business rules found in the database to sync.")
+        return 0
 
+    # 2. Parse, Categorize, and Embed
+    records_to_upsert = []
+    for rule in rules:
+        rule_id = str(rule.get("rule_id", uuid4().hex))
+        definition = str(rule.get("rule_definition", "")).strip()
+        is_critical = bool(rule.get("is_critical", False))
+        
+        if not definition:
+            continue
 
+        # Smart Categorization for Vector Metadata
+        rule_type = "business_rule"
+        lower_def = definition.lower()
+        if "semantic" in lower_def or "means" in lower_def:
+            rule_type = "semantic"
+        elif "ontology" in lower_def or "synonym" in lower_def:
+            rule_type = "ontology"
+        elif "constraint" in lower_def or "must" in lower_def or "never" in lower_def:
+            rule_type = "constraint"
 
-    if not business_context:
-        return "Warning: No business context found. Operating with default assumptions."
+        text_payload = definition
+        if is_critical and not text_payload.startswith("CRITICAL:"):
+            text_payload = f"CRITICAL: {text_payload}"
 
-    # 1. Core Metadata
-    dataset = str(business_context.get("dataset", settings.db_table)).strip()
-    source_type = str(business_context.get("source_type", "relational_db")).strip()
-    dialect = str(business_context.get("target_dialect", "unknown")).strip()
+        try:
+            embedding = await vector_memory.generate_embedding(text_payload)
+        except Exception as e:
+            logger.warning(f"Failed to generate embedding for rule {rule_id}: {e}")
+            continue
 
-    sections = [
-        "=============================\n"
-        "DATASET CONTEXT\n"
-        "=============================\n"
-        f"- Target Dataset: {dataset}\n"
-        f"- Source Type: {source_type}\n"
-        f"- Required SQL Dialect: {dialect.upper()}"
-    ]
+        records_to_upsert.append(
+            VectorRecord(
+                id=f"rule_{tenant_id}_{rule_id}",
+                text=text_payload,
+                embedding=embedding,
+                metadata={
+                    "source": "live_db_sync",
+                    "memory_type": "knowledge",
+                    "tenant_id": tenant_id,
+                    "rule_type": rule_type,
+                    "is_critical": is_critical,
+                    "timestamp_epoch": time.time()
+                }
+            )
+        )
 
-    # 2. Dynamic Schema
-    schema_dict = business_context.get("schema", {})
-    if schema_dict:
-        schema_lines = []
-        for table, cols in schema_dict.items():
-            schema_lines.append(f"Table: {table}")
-            schema_lines.extend(f"  {col}" for col in cols)
-        sections.append("DATABASE SCHEMA:\n" + "\n".join(schema_lines))
+    # 3. Upsert into ChromaDB Knowledge Collection
+    if records_to_upsert:
+        try:
+            await vector_memory._vector_store.upsert_records(
+                collection_name=settings.vector_collection_knowledge,
+                records=records_to_upsert
+            )
+            logger.info(f"Successfully synced {len(records_to_upsert)} rules into vector memory.")
+        except Exception as e:
+            logger.error(f"Failed to upsert rules into ChromaDB: {e}")
+            return 0
+            
+    return len(records_to_upsert)
 
-    # 3. Semantic Layer
-    semantic_layer = [
-        str(item).strip() for item in business_context.get("semantic_layer", []) if str(item).strip()
-    ]
-    if semantic_layer:
-        sections.append("SEMANTIC LAYER (Data Meanings):\n" + "\n".join(f"- {item}" for item in semantic_layer))
-
-    # 4. Ontology (Synonyms mapping)
-    ontology = business_context.get("ontology", {})
-    if ontology:
-        ont_lines = [
-            f"- '{col}' is also referred to as: {', '.join(synonyms)}" 
-            for col, synonyms in ontology.items() if synonyms
-        ]
-        if ont_lines:
-            sections.append("ONTOLOGY & SYNONYMS:\n" + "\n".join(ont_lines))
-
-    # 5. Business Rules
-    business_rules = [
-        str(item).strip() for item in business_context.get("business_rules", []) if str(item).strip()
-    ]
-    if business_rules:
-        sections.append("BUSINESS RULES:\n" + "\n".join(f"- {item}" for item in business_rules))
-
-    # 6. Hard Constraints
-    constraints = [
-        str(item).strip() for item in business_context.get("constraints", []) if str(item).strip()
-    ]
-    if constraints:
-        sections.append("SYSTEM CONSTRAINTS:\n" + "\n".join(f"- {item}" for item in constraints))
-
-    return "\n\n".join(section for section in sections if section.strip())
+async def retrieve_dynamic_rag_context(tenant_id: str = "default") -> str:
+    """
+    Legacy stub. In the advanced architecture, schema is handled by SchemaService 
+    and RAG rules are dynamically injected by VectorMemory via the sync engine. 
+    Returns an empty string to gracefully sever the legacy file-based pipeline.
+    """
+    return ""

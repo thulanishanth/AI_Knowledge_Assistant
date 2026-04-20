@@ -53,7 +53,7 @@ class PromptBuilder:
 
     SQL_CRITIC_SCHEMA = {
         "verdict": "approve | retry | clarify",
-        "reason": "",
+        "reason": "Explain if the SQL misinterprets the request or contains logically impossible WHERE/JOIN conditions.",
         "clarifying_question": "",
     }
 
@@ -69,30 +69,46 @@ class PromptBuilder:
         return json.dumps(schema, ensure_ascii=True, indent=2)
 
     def _prune_schema(self, schema: Any) -> str:
-        """Surgically removes irrelevant tables to save LLM tokens."""
-        if not hasattr(schema, 'schema_dict'):
-            # Fallback if an old schema object is passed
-            if hasattr(schema, 'to_prompt_block'):
-                return schema.to_prompt_block()
-            return str(schema)
-
-        # HIDE THESE TABLES FROM THE LLM!
-        excluded_tables = {"chat_messages", "alembic_version"}
+        excluded = {"chat_messages", "alembic_version"}
         
-        schema_lines = [
-            f"Target Execution Dialect: {getattr(schema, 'dialect', 'MYSQL').upper()}",
-            f"Dataset Name: {getattr(schema, 'dataset_name', 'default')}",
-            "Schema Structure:"
-        ]
+        # UniversalSchema (live introspection — primary path)
+        if hasattr(schema, "schema_dict"):
+            lines = [
+                f"Target Execution Dialect: {getattr(schema, 'dialect', 'MYSQL').upper()}",
+                f"Dataset Name: {getattr(schema, 'dataset_name', 'default')}",
+                "Schema Structure:"
+            ]
+            for table_name, columns in schema.schema_dict.items():
+                if table_name.lower() in excluded:
+                    continue
+                lines.append(f"\nTable: {table_name}")
+                for col in columns:
+                    lines.append(f"  {col}")
+            return "\n".join(lines)
         
-        for table_name, columns in schema.schema_dict.items():
-            if table_name.lower() in excluded_tables:
-                continue
-            schema_lines.append(f"\nTable: {table_name}")
-            for col in columns:
-                schema_lines.append(f"  {col}")
-                
-        return "\n".join(schema_lines)
+        # TableSchema (legacy JSON path)
+        if hasattr(schema, "tables"):
+            lines = [
+                f"Target Execution Dialect: {getattr(schema, 'dialect', 'MYSQL').upper()}",
+                f"Dataset Name: {getattr(schema, 'dataset_name', 'default')}",
+                "Schema Structure:"
+            ]
+            for table_name, columns in schema.tables.items():
+                if table_name.lower() in excluded:
+                    continue
+                lines.append(f"\nTable: {table_name}")
+                for col in columns:
+                    pk = " [PRIMARY KEY]" if getattr(col, "is_primary_key", False) else ""
+                    lines.append(f"  - {col.name} ({col.data_type}){pk}")
+                    if getattr(col, "sample_values", None):
+                        joined = ", ".join(f"'{v}'" for v in col.sample_values)
+                        lines.append(f"    Sample values: {joined}")
+            return "\n".join(lines)
+        
+        # Last resort
+        if hasattr(schema, "to_prompt_block"):
+            return schema.to_prompt_block()
+        return str(schema)
 
     def build_teaching_prompt(self, instruction: str, schema: Any) -> str:
         schema_block = self._prune_schema(schema)
@@ -309,13 +325,13 @@ Return exactly this JSON schema:
         return f"""
 You are a lightweight SQL critic.
 
-Review whether the SQL is a safe and relevant match for the user's question.
+Review whether the SQL is a safe, logically sound, and relevant match for the user's question.
 
 Return ONLY valid JSON. No markdown. No explanations.
 
 Decision rules:
 - Use "approve" if the SQL is aligned to the question and schema.
-- Use "retry" if the SQL likely misinterprets the request but the request is still answerable.
+- Use "retry" if the SQL misinterprets the request, contains mutually exclusive WHERE clauses (e.g., requiring a column to be two different values simultaneously), or contains impossible JOINs.
 - Use "clarify" if the question is too ambiguous to answer safely.
 
 User question:
@@ -430,6 +446,7 @@ Hard rules:
 - Only one statement
 - Only SELECT or WITH ... SELECT
 - Do not invent columns, tables, joins, or metrics
+- If the "Business rules and retrieved knowledge" section contains duplicate instructions, evaluate them as a single rule. Do not attempt to apply the same logic multiple times in your SQL (e.g., do not add duplicate WHERE clauses).
 - If the question cannot be answered from the provided schema and business rules, return exactly:
 INSUFFICIENT_CONTEXT
 - Keep the result bounded with LIMIT {settings.max_query_results} UNLESS using aggregate functions (COUNT, AVG, SUM, MIN, MAX) without a GROUP BY.

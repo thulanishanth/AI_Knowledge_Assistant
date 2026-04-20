@@ -13,11 +13,7 @@ logger = get_logger(__name__)
 class DynamicRagFiller:
     """
     Formats retrieved Chroma results into a clean prompt block for SQL generation.
-
-    It supports:
-    - general knowledge memory
-    - approved business-logic memory
-    - resolved business-term mappings
+    Parses directly from Vector Store metadata and structures the context dynamically.
     """
 
     @staticmethod
@@ -56,61 +52,57 @@ class DynamicRagFiller:
         if not vector_results:
             return ""
 
-        knowledge_only: list[dict[str, Any]] = []
+        semantics: list[str] = []
+        constraints: list[str] = []
+        ontology: list[str] = []
+        business_rules: list[str] = []
+        
         seen: set[str] = set()
 
         for item in vector_results:
             metadata = item.get("metadata", {}) or {}
             text = str(item.get("text", "")).strip()
+            
             if not text or text in seen:
                 continue
 
-            is_knowledge = (
-                item.get("source") == "knowledge_memory"
-                or metadata.get("memory_type") == "knowledge"
-                or metadata.get("source") == "db_context_script"
-            )
-            if is_knowledge:
-                seen.add(text)
-                knowledge_only.append(item)
+            # Only process legitimate knowledge memory (ignore conversational history)
+            source = metadata.get("source", "")
+            memory_type = metadata.get("memory_type", "")
+            if source != "live_db_sync" and memory_type != "knowledge" and item.get("source") != "knowledge_memory":
+                continue
 
-        if not knowledge_only:
-            return ""
-
-        semantics: list[str] = []
-        constraints: list[str] = []
-        examples: list[str] = []
-        other: list[str] = []
-
-        for item in knowledge_only:
-            text = str(item.get("text", "")).strip()
-
-            if text.startswith("SEMANTIC DEFINITION:"):
-                semantics.append(text.replace("SEMANTIC DEFINITION:\n", "- ", 1))
-            elif text.startswith("BUSINESS CONSTRAINT:"):
-                constraints.append(text.replace("BUSINESS CONSTRAINT:\n", "- ", 1))
-            elif text.startswith("SQL EXAMPLE:"):
-                examples.append(text.replace("SQL EXAMPLE:\n", "", 1).strip())
+            seen.add(text)
+            
+            # Smartly route rules into optimal prompt categories based on Chroma Metadata
+            rule_type = metadata.get("rule_type", "")
+            
+            if rule_type == "semantic" or text.startswith("SEMANTIC DEFINITION:"):
+                semantics.append(f"- {text.replace('SEMANTIC DEFINITION:', '').strip()}")
+            elif rule_type == "constraint" or text.startswith("BUSINESS CONSTRAINT:"):
+                constraints.append(f"- {text.replace('BUSINESS CONSTRAINT:', '').strip()}")
+            elif rule_type == "ontology" or "ONTOLOGY" in text:
+                ontology.append(f"- {text.replace('ONTOLOGY:', '').strip()}")
             else:
-                other.append(f"- {text}")
+                business_rules.append(f"- {text}")
 
         sections: list[str] = []
 
+        if ontology:
+            sections.append("ONTOLOGY & SYNONYMS:\n" + "\n".join(ontology[:10]))
         if semantics:
             sections.append("SEMANTIC DEFINITIONS:\n" + "\n".join(semantics[:15]))
         if constraints:
-            sections.append("BUSINESS CONSTRAINTS:\n" + "\n".join(constraints[:12]))
-        if examples:
-            sections.append("SQL EXAMPLES:\n" + "\n\n".join(examples[:6]))
-        if other:
-            sections.append("ADDITIONAL KNOWLEDGE:\n" + "\n".join(other[:8]))
+            sections.append("SYSTEM CONSTRAINTS:\n" + "\n".join(constraints[:12]))
+        if business_rules:
+            sections.append("BUSINESS RULES:\n" + "\n".join(business_rules[:10]))
 
         logger.info(
-            "RAG filler knowledge formatting applied: semantics=%s constraints=%s examples=%s other=%s",
+            "RAG filler knowledge formatting applied: ontology=%s semantics=%s constraints=%s rules=%s",
+            len(ontology),
             len(semantics),
             len(constraints),
-            len(examples),
-            len(other),
+            len(business_rules),
         )
         return "\n\n".join(sections).strip()
 
@@ -207,4 +199,3 @@ class DynamicRagFiller:
 
 
 rag_filler = DynamicRagFiller()
-

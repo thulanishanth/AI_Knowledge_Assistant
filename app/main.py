@@ -1,4 +1,4 @@
-#app/main.py
+# app/main.py
 """FastAPI application bootstrap and lifecycle wiring."""
 
 from __future__ import annotations
@@ -29,6 +29,11 @@ async def lifespan(app: FastAPI):
     """Handle application startup and shutdown events."""
     # Startup
     await container.initialize()
+    
+    # Sync database rules to vector store at startup
+    from app.services.rag_retriever import sync_database_rules_to_vector_store
+    await sync_database_rules_to_vector_store(container.vector_memory, settings.db_name)
+
     app.state.cleanup_task = asyncio.create_task(
         container.memory_manager.run_cleanup_forever()
     )
