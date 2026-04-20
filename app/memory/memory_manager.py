@@ -144,7 +144,6 @@ class MemoryManager:
 
             background_tasks = [
                 self._summary_memory.update_summary(user_id, session_id, question, answer),
-                dump_conversation(question, answer, full_prompt, rag_context, generated_sql, execution_status)
             ]
 
             if importance >= settings.memory_importance_threshold:

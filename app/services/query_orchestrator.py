@@ -1,6 +1,6 @@
 # app/services/query_orchestrator.py
 from __future__ import annotations
-
+import os
 import asyncio
 import json
 import re
@@ -24,6 +24,7 @@ from app.services.llm_client import call_llm
 from app.services.prompt_builder import PromptBuilder
 from app.services.conversation_state_store import ConversationStateStore, LastQueryState, DialogueState
 from app.services.rag_retriever import retrieve_dynamic_rag_context
+from app.observability.file_dumper import dump_conversation
 
 logger = get_logger(__name__)
 
@@ -240,7 +241,7 @@ class QueryOrchestrator:
             # --- 6. Database Query Flow ---
             final_query = analysis.get("standalone_question", sanitized.normalized)
             
-            target_model, is_cloud = "local-llm", False  
+            target_model, is_cloud = os.getenv("HF_MODEL", "unknown-local-model"), False  
 
             # ==========================================
             # SURGICAL RULE EXTRACTION
@@ -504,6 +505,47 @@ class QueryOrchestrator:
             except Exception as e:
                 logger.error(f"Failed to save conversation state: {e}")
 
+            # ==========================================
+            # DYNAMIC LLM METRICS LOGGING (The Fix)
+            # ==========================================
+            try:
+                # 1. Define the Context Map for your supported models
+                CONTEXT_WINDOW_MAP = {
+                    "local-llm": 8192,
+                    "llama-3-8b": 8192,
+                    "mistral-v0.3": 32768,
+                    "qwen-2-7b": 32768,
+                    "gpt-4o": 128000,
+                    "gpt-4-turbo": 128000,
+                    "gpt-3.5-turbo": 16384
+                }
+                
+                # 2. Dynamically fetch the window size, defaulting to 8192 if unknown
+                actual_max_window = CONTEXT_WINDOW_MAP.get(target_model, 8192)
+                
+                # 3. Calculate estimated tokens safely
+                estimated_tokens = int(len(debug_sql_prompt.split()) * 1.3) if debug_sql_prompt else 0
+                
+                # 4. DIRECT CALL to the file dumper (bypassing the memory manager)
+                # This guarantees the arguments reach the file dumper perfectly.
+                await dump_conversation(
+                    user_query=final_query,
+                    ai_response=explanation,
+                    full_prompt=debug_sql_prompt if debug_sql_prompt else "",
+                    rag_context=clean_business_rules,
+                    generated_sql=sql_result.sql if sql_result else "None",
+                    execution_status=exec_status,
+                    human_readable_prompt=debug_sql_prompt if debug_sql_prompt else "None",
+                    llm_model_name=target_model,             
+                    max_context_window=actual_max_window,   
+                    estimated_tokens=estimated_tokens
+                )
+            except Exception as e:
+                logger.error(f"Metrics Dumper failed: {e}")
+
+            # ==========================================
+            # RETURN FINAL RESPONSE
+            # ==========================================
             log_event("info", "query_completed", strategy=sql_result.strategy, rows=execution.row_count)
 
             return QueryResponse(

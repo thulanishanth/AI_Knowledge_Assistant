@@ -27,7 +27,7 @@ def _get_client() -> OpenAI:
             
         # Redirecting to Hugging Face Inference API (OpenAI compatible)
         _client = OpenAI(
-            base_url="https://api-inference.huggingface.co/v1/",
+            base_url="https://router.huggingface.co/v1",
             api_key=api_key,
         )
     return _client

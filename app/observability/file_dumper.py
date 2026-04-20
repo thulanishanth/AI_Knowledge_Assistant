@@ -1,3 +1,4 @@
+# app/observability/file_dumper.py
 import asyncio
 import json
 import os
@@ -57,16 +58,20 @@ logger.info(f"Initialized file dumper. Logging to: {TRIAL_DIR}")
 # =====================================================================
 
 # The 6 separate files (1-to-1 line mapping)
-USER_FILE = TRIAL_DIR / "user_inputs.txt"
-AI_FILE = TRIAL_DIR / "ai_responses.txt"
-TIME_FILE = TRIAL_DIR / "timestamps.txt"
-PROMPT_FILE = TRIAL_DIR / "full_prompts.txt"
-RAG_FILE = TRIAL_DIR / "rag_context_only.txt"
-SQL_FILE = TRIAL_DIR / "generated_sql.txt"
+USER_FILE = TRIAL_DIR / "1.user_inputs.txt"
+AI_FILE = TRIAL_DIR / "2.ai_responses.txt"
+TIME_FILE = TRIAL_DIR / "3.timestamps.txt"
+PROMPT_FILE = TRIAL_DIR / "4.full_prompts.txt"
+RAG_FILE = TRIAL_DIR / "5.rag_context_only.txt"
+SQL_FILE = TRIAL_DIR / "6.generated_sql.txt"
+
+#NEW: Separate files for LLM Metadata and Human Readable Prompts
+LLM_METADATA_FILE = TRIAL_DIR / "7.llm_execution_metrics.txt"
+HUMAN_PROMPT_FILE = TRIAL_DIR / "8.human_readable_prompts.txt"
 
 # The Master Files
-ALL_IN_ONE_TXT = TRIAL_DIR / "human_readable_history.txt"
-ALL_IN_ONE_JSON = TRIAL_DIR / "all_in_one_history.jsonl"
+ALL_IN_ONE_TXT = TRIAL_DIR / "9.human_readable_history.txt"
+ALL_IN_ONE_JSON = TRIAL_DIR / "10.all_in_one_history.jsonl"
 
 # --- Write the Server Boot Header to the Human Readable File ---
 with open(ALL_IN_ONE_TXT, "a", encoding="utf-8") as f:
@@ -86,7 +91,8 @@ def _sanitize_for_txt(text: str) -> str:
         return "None"
     return str(text).replace("\n", "\\n").replace("\r", "").strip()
 
-def sync_dump_to_txt(user_query: str, ai_response: str, full_prompt: str, rag_context: str, generated_sql: str, execution_status: str):
+def sync_dump_to_txt(user_query: str, ai_response: str, full_prompt: str, rag_context: str, generated_sql: str, execution_status: str,
+                     human_readable_prompt: str,llm_model_name: str,max_context_window: int, estimated_tokens: int):
     """Synchronously appends the data to all files in the current trial directory."""
     try:
         # Get the EXACT local time the user's query finished executing
@@ -108,11 +114,26 @@ def sync_dump_to_txt(user_query: str, ai_response: str, full_prompt: str, rag_co
         with open(PROMPT_FILE, "a", encoding="utf-8") as f: f.write(f"{clean_prompt}\n")
         with open(RAG_FILE, "a", encoding="utf-8") as f: f.write(f"{clean_rag}\n")
         with open(SQL_FILE, "a", encoding="utf-8") as f: f.write(f"{clean_sql}\n")
+        
+        #Write LLM Execution Metrics to its Separate File
+        metadata_line = f"[{now_str}] Model: {llm_model_name} | Max Window: {max_context_window} | Tokens Used: {estimated_tokens}\n"
+        with open(LLM_METADATA_FILE, "a", encoding="utf-8") as f: 
+            f.write(metadata_line)
+
+        #  Write the Human Readable Prompt to its Separate File (Multi-line)
+        prompt_block = (
+            f"--- PROMPT DUMP: {now_str} ---\n"
+            f"{human_readable_prompt or 'None'}\n"
+            f"----------------------------------------\n\n"
+        )
+        with open(HUMAN_PROMPT_FILE, "a", encoding="utf-8") as f:
+            f.write(prompt_block)
 
         # 3. Create the Human-Readable block
         human_readable_block = (
             f"================================================================================\n"
             f"EXECUTION TIMESTAMP: {now_str}\n"
+            f"LLM DETAILS: {llm_model_name} (Used ~{estimated_tokens}/{max_context_window} tokens)\n"
             f"--------------------------------------------------------------------------------\n"
             f"USER QUERY:\n{user_query or 'None'}\n"
             f"--------------------------------------------------------------------------------\n"
@@ -132,6 +153,9 @@ def sync_dump_to_txt(user_query: str, ai_response: str, full_prompt: str, rag_co
         log_entry = {
             "timestamp": now_iso,
             "local_time": now_str,
+            "llm_model": llm_model_name,
+            "max_context_window": max_context_window,
+            "estimated_tokens": estimated_tokens,
             "user_query": user_query or "",
             "generated_sql": generated_sql or "",
             "execution_status": execution_status or "",
@@ -145,6 +169,8 @@ def sync_dump_to_txt(user_query: str, ai_response: str, full_prompt: str, rag_co
     except Exception as e:
         logger.error(f"Failed to dump conversation to txt files: {e}")
 
-async def dump_conversation(user_query: str, ai_response: str, full_prompt: str = "", rag_context: str = "", generated_sql: str = "", execution_status: str = ""):
+async def dump_conversation(user_query: str, ai_response: str, full_prompt: str = "", rag_context: str = "", generated_sql: str = "", execution_status: str = "",
+                            human_readable_prompt: str = "",llm_model_name: str = "unknown",max_context_window: int = 0,estimated_tokens: int = 0):
     """Async wrapper so it doesn't block your FastAPI event loop."""
-    await asyncio.to_thread(sync_dump_to_txt, user_query, ai_response, full_prompt, rag_context, generated_sql, execution_status)
+    await asyncio.to_thread(sync_dump_to_txt, user_query, ai_response, full_prompt, rag_context, generated_sql, execution_status,
+                            human_readable_prompt,llm_model_name, max_context_window, estimated_tokens)
