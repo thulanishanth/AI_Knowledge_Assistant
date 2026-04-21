@@ -1,0 +1,3 @@
+Blocked: SQL comments are not allowed.; Only SELECT or WITH queries are allowed.
+4,775 bookings have more nights on weekends than on weekdays. This indicates a shift in traveler preferences towards longer stays during weekends.
+4,775 bookings have more nights on weekends than on weekdays, excluding those with 0 weekend nights. This indicates a preference for weekend stays among a significant portion of our customers.

@@ -1,0 +1,3 @@
+In the year 2018, which arrival month generated the highest total approximate revenue for Not_Canceled bookings?
+How many bookings have more nights on weekends than on weekdays?
+How many bookings have more nights on weekends than on weekdays, excluding those with 0 weekend nights?
