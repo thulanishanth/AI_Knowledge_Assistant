@@ -60,7 +60,7 @@ def call_llm(
             )
             
             # --- OBSERVABILITY: Extract and log token usage ---
-            usage = extract_token_usage(response, model_name=model_name)
+            usage = extract_token_usage(response, model=model_name)
             logger.info("LLM_TOKENS | model=%s | prompt=%s | completion=%s | total=%s", 
                 usage.model, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens)
             
@@ -125,7 +125,7 @@ def call_llm_with_tool(
             )
 
             # --- OBSERVABILITY: Extract and log token usage ---
-            usage = extract_token_usage(response, model_name=model_name)
+            usage = extract_token_usage(response, model=model_name)
             logger.info("LLM_TOOL_TOKENS | model=%s | prompt=%s | completion=%s | total=%s", 
                 usage.model, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens)
 

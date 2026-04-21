@@ -16,6 +16,7 @@ from app.observability.metrics import metrics
 from app.observability.structured_logger import log_event
 from app.observability.tracing import tracing
 from app.observability.file_dumper import dump_conversation
+from app.observability.query_observer import estimate_tokens
 
 logger = get_logger(__name__)
 
@@ -155,6 +156,24 @@ class MemoryManager:
                 )
 
             await asyncio.gather(*background_tasks, return_exceptions=True)
+
+            try:
+                dump_payload = "\n".join(
+                    part for part in (question, answer, full_prompt, rag_context, generated_sql) if part
+                )
+                await dump_conversation(
+                    user_query=question,
+                    ai_response=answer,
+                    full_prompt=full_prompt,
+                    rag_context=rag_context,
+                    generated_sql=generated_sql,
+                    execution_status=execution_status,
+                    human_readable_prompt=full_prompt,
+                    llm_model_name=settings.hf_model,
+                    estimated_tokens=estimate_tokens(dump_payload),
+                )
+            except Exception as exc:
+                logger.error("Conversation dump failed: %s", exc)
                     
     def detect_memory_importance(self, question: str, answer: str) -> float:
         text = f"{question} {answer}".lower()

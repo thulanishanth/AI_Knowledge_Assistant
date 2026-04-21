@@ -180,15 +180,49 @@ class QueryOrchestrator:
                     }
                 }
 
+            async def persist_interaction_dump(
+                *,
+                question: str,
+                answer: str,
+                full_prompt: str = "",
+                rag_context: str = "",
+                generated_sql: str = "",
+                execution_status: str = "",
+            ) -> None:
+                try:
+                    await self._memory_manager.update_memory_pipeline(
+                        user_id=session_ctx.user_id,
+                        session_id=session_ctx.session_id,
+                        question=question,
+                        answer=answer,
+                        full_prompt=full_prompt,
+                        rag_context=rag_context,
+                        generated_sql=generated_sql,
+                        execution_status=execution_status,
+                    )
+                except Exception as e:
+                    logger.error(f"Memory pipeline failed: {e}")
+
             if intent == "clarify" or analysis.get("needs_clarification") is True:
                 clarifying_msg = analysis.get("clarifying_question", "Could you provide a little more detail?")
                 dialogue_state_obj.pending_clarification = clarifying_msg
                 await self._conversation_state_store.save_dialogue_state(session_ctx.user_id, session_ctx.session_id, dialogue_state_obj)
+                await persist_interaction_dump(
+                    question=sanitized.normalized,
+                    answer=clarifying_msg,
+                    execution_status="Clarification requested",
+                )
                 obs.finish()
                 return QueryResponse(answer=clarifying_msg, confidence=1.0, session_id=session_ctx.session_id, presentation={"kind": "notice", "title": "Clarification Needed", "message": clarifying_msg}, meta=build_debug_meta("intent_clarify"))
 
             if intent in ["general_answer", "explain_last_answer", "diagnose"]:
                 chat_answer = await asyncio.to_thread(self._intent_service.answer_general_question, user_question=sanitized.normalized, memory_context=session_context)
+                await persist_interaction_dump(
+                    question=sanitized.normalized,
+                    answer=chat_answer,
+                    rag_context=session_context,
+                    execution_status=f"Intent route: {intent}",
+                )
                 obs.finish()
                 return QueryResponse(answer=chat_answer, confidence=1.0, session_id=session_ctx.session_id, presentation={"kind": "text", "message": chat_answer}, meta=build_debug_meta(f"intent_{intent}"))
 
@@ -230,6 +264,14 @@ class QueryOrchestrator:
                 if not sql_result.is_valid:
                     safe_answer = f"Blocked: {'; '.join(sql_result.validation.errors)}"
                     obs.record_sql(sql=sql_result.sql, strategy="security_blocked")
+                    await persist_interaction_dump(
+                        question=final_query,
+                        answer=safe_answer,
+                        full_prompt=debug_sql_prompt,
+                        rag_context=clean_business_rules,
+                        generated_sql=sql_result.sql,
+                        execution_status="Security blocked",
+                    )
                     obs.finish()
                     return QueryResponse(answer=safe_answer, confidence=1.0, session_id=session_ctx.session_id, presentation={"kind": "notice", "title": "Blocked", "message": safe_answer}, meta=build_debug_meta("security_blocked", sql=sql_result.sql, sql_prompt=debug_sql_prompt))
 
