@@ -1,4 +1,4 @@
-#app/services/llm_client.py
+# app/services/llm_client.py
 """LLM client wrapper wired to Hugging Face Inference API (Qwen 2.5 7B)."""
 
 import time
@@ -9,6 +9,7 @@ from openai import OpenAI
 
 from app.core.settings import settings
 from app.core.logging import get_logger
+from app.observability.query_observer import extract_token_usage
 
 logger = get_logger(__name__)
 
@@ -57,6 +58,11 @@ def call_llm(
                 max_tokens=max_tokens,
                 temperature=temp,
             )
+            
+            # --- OBSERVABILITY: Extract and log token usage ---
+            usage = extract_token_usage(response, model_name=model_name)
+            logger.info("LLM_TOKENS | model=%s | prompt=%s | completion=%s | total=%s", 
+                usage.model, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens)
             
             content = (response.choices[0].message.content or "").strip()
             if content:
@@ -117,6 +123,11 @@ def call_llm_with_tool(
                 temperature=temp,
                 max_tokens=max_tokens
             )
+
+            # --- OBSERVABILITY: Extract and log token usage ---
+            usage = extract_token_usage(response, model_name=model_name)
+            logger.info("LLM_TOOL_TOKENS | model=%s | prompt=%s | completion=%s | total=%s", 
+                usage.model, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens)
 
             tool_calls = response.choices[0].message.tool_calls
             if tool_calls:
