@@ -1,0 +1,2 @@
+What is the highest lead time among bookings that were Canceled and had exactly 2 special requests?
+What is the highest lead time among bookings that were Canceled and had exactly 2 special requests?

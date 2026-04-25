@@ -1,0 +1,8 @@
+None
+Decomposition Strategy: single\n\nSub-Queries:\nWhich room_type_reserved has the highest average lead time for non-canceled bookings?
+None
+Decomposition Strategy: single\n\nSub-Queries:\nHow many bookings have more weekend nights than week nights?
+None
+Decomposition Strategy: single\n\nSub-Queries:\nHow many bookings have more weekend nights than week nights, excluding any bookings that have 0 weekend nights?
+None
+Decomposition Strategy: single\n\nSub-Queries:\nHow many bookings have exactly 0 adults?

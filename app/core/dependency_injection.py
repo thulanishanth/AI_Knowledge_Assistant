@@ -6,7 +6,6 @@ from uuid import uuid4
 
 from app.core.session_manager import SessionContext
 from app.infrastructure.repositories.chat_history_repository import ChatHistoryRepository
-from app.infrastructure.repositories.schema_repository import SchemaRepository
 from app.memory.context_aggregator import ContextAggregator
 from app.memory.memory_manager import MemoryManager
 from app.memory.summary_memory import SummaryMemory
@@ -25,28 +24,42 @@ from app.services.sql_generation_service import SQLGenerationService
 from app.vector_store.chroma_adapter import ChromaAdapter
 from app.services.conversation_state_store import ConversationStateStore
 
+
 class SessionManager:
-    def resolve(self, user_id: str | None = None, session_id: str | None = None) -> SessionContext:
+    def resolve(
+        self, user_id: str | None = None, session_id: str | None = None
+    ) -> SessionContext:
         normalized_user = (user_id or "").strip() or "anonymous"
         normalized_session = (session_id or "").strip() or self._generate_session_id()
-        return SessionContext(user_id=normalized_user, session_id=normalized_session, request_ts=datetime.now(timezone.utc))
+        return SessionContext(
+            user_id=normalized_user,
+            session_id=normalized_session,
+            request_ts=datetime.now(timezone.utc),
+        )
 
     @staticmethod
     def _generate_session_id() -> str:
         return f"sess_{uuid4().hex[:16]}"
 
+
 class ServiceContainer:
     def __init__(self) -> None:
         self.session_manager = SessionManager()
         self.chat_history_repository = ChatHistoryRepository()
-        self.schema_repository = SchemaRepository()
-        self.schema_service = SchemaService(self.schema_repository)
+
+        # Schema service now directly introspects the live DB — no file-based repository
+        self.schema_service = SchemaService()
+
         self.sql_guard = SqlGuard()
         self.embedding_service = EmbeddingService()
         self.reranker_service = RerankerService()
 
         self.vector_store = ChromaAdapter()
-        self.vector_memory = VectorMemory(vector_store=self.vector_store, embedding_service=self.embedding_service, reranker_service=self.reranker_service)
+        self.vector_memory = VectorMemory(
+            vector_store=self.vector_store,
+            embedding_service=self.embedding_service,
+            reranker_service=self.reranker_service,
+        )
 
         self.window_memory = WindowMemory()
         self.summary_memory = SummaryMemory()
@@ -54,12 +67,15 @@ class ServiceContainer:
 
         self.prompt_builder = PromptBuilder()
 
-        self.memory_manager = MemoryManager(vector_memory=self.vector_memory, window_memory=self.window_memory, summary_memory=self.summary_memory, context_aggregator=self.context_aggregator)
+        self.memory_manager = MemoryManager(
+            vector_memory=self.vector_memory,
+            window_memory=self.window_memory,
+            summary_memory=self.summary_memory,
+            context_aggregator=self.context_aggregator,
+        )
 
         self.intent_service = IntentService(prompt_builder=self.prompt_builder)
 
-        # FIXED INITIALIZATION
-        # FIXED INITIALIZATION
         self.sql_generation_service = SQLGenerationService(
             schema_service=self.schema_service,
             sql_guard=self.sql_guard,
@@ -84,5 +100,6 @@ class ServiceContainer:
 
     async def initialize(self) -> None:
         await self.memory_manager.initialize_memory_manager()
+
 
 container = ServiceContainer()

@@ -1,4 +1,4 @@
-#app/services/sql_generation_service.py
+# app/services/sql_generation_service.py
 from __future__ import annotations
 import asyncio
 import re
@@ -62,18 +62,17 @@ class SQLGenerationService:
         self,
         question: str,
         schema: TableSchema,
-        ontology_context: str = "",  # <-- FIXED: Explicitly accepts ontology_context
+        ontology_context: str = "",
         session_context: str = "",
         intent: Any | None = None,
         model: str = "local-llm",
         is_cloud: bool = False
     ) -> SqlGenerationResult:
 
-        # Pass the ontology_context down to the prompt builder
         prompt = self._prompt_builder.build_sql_prompt(
             question=question,
             schema=schema,
-            ontology_context=ontology_context,  # <-- FIXED
+            ontology_context=ontology_context,
             session_context=session_context
         )
 
@@ -99,7 +98,7 @@ class SQLGenerationService:
         repair_prompt = self._prompt_builder.build_sql_repair_prompt(
             question=question,
             schema=schema,
-            ontology_context=ontology_context,  # <-- FIXED
+            ontology_context=ontology_context,
             session_context=session_context,
             invalid_sql=sql_candidate,
             errors=validation.errors
@@ -127,8 +126,16 @@ class SQLGenerationService:
         if not text: return ""
         value = text.strip()
         fenced = re.search(r"`{3}(?:\w+)?\n?(.*?)`{3}", value, re.IGNORECASE | re.DOTALL)
-        if fenced: extracted = fenced.group(1).strip()
-        else: extracted = value
+        if fenced: 
+            extracted = fenced.group(1).strip()
+        else: 
+            extracted = value
+            
+        # Strip all SQL comments to prevent downstream guardrail trips
+        extracted = re.sub(r"--.*?(\n|$)", "\n", extracted)
+        extracted = re.sub(r"/\*.*?\*/", "", extracted, flags=re.DOTALL)
+        extracted = extracted.strip()
+
         if re.search(r"^\s*(select|with)\b", extracted, re.IGNORECASE):
             if ";" in extracted: extracted = extracted.split(";", 1)[0].strip()
             return f"{extracted};"

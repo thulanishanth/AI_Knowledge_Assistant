@@ -1,0 +1,2 @@
+None
+Decomposition Strategy: single\n\nSub-Queries:\nWhat is the highest lead time among bookings that were Canceled and had exactly 2 special requests?

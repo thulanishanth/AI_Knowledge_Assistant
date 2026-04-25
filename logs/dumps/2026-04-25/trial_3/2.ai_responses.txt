@@ -1,0 +1,4 @@
+The average price per room is 98.43.
+The average price per room is 98.43.
+The average total stay length is 1.4330 weeks.
+The average total stay length is 1.4330 weeks.

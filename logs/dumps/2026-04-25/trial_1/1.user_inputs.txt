@@ -1,0 +1,8 @@
+Which room_type_reserved has the highest average lead time for non-canceled bookings?
+Which room_type_reserved has the highest average lead time for non-canceled bookings?
+How many bookings have more weekend nights than week nights?
+How many bookings have more weekend nights than week nights?
+How many bookings have more weekend nights than week nights, excluding any bookings that have 0 weekend nights?
+How many bookings have more weekend nights than week nights, excluding any bookings that have 0 weekend nights?
+How many bookings have exactly 0 adults?
+How many bookings have exactly 0 adults?

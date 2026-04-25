@@ -103,7 +103,7 @@ class OntologyResolver:
             return "(none matched — use schema columns and business rules directly)"
 
         lines = ["APPROVED BUSINESS TERM FORMULAS (use these exact SQL expressions):"]
-        for term in top_matches:
+        for term in resolved:
             warn_str = f" | WARNING: {'; '.join(term.warnings[:2])}" if term.warnings else ""
             unit_str = f" [{term.unit}]" if term.unit else ""
 

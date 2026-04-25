@@ -46,7 +46,6 @@ _FORBIDDEN_NOSQL_KEYWORDS = {
     "drop", "dropdatabase", "replaceone"
 }
 
-_COMMENT_PATTERN = re.compile(r"(--|/\*|\*/|#)")
 _TABLE_PATTERN = re.compile(
     r"\b(?:from|join)\s+[`\"]?([a-zA-Z_][a-zA-Z0-9_]*)[`\"]?",
     re.IGNORECASE,
@@ -95,8 +94,15 @@ class SqlGuard:
 
     @staticmethod
     def _normalize(query: str, dialect: str) -> str:
-        """Strip markdown and normalize spacing."""
+        """Strip markdown, comments, and normalize spacing."""
         q = query.replace("```sql", "").replace("```json", "").replace("```", "").strip()
+        
+        # Cleanly strip any comments that bypassed extraction
+        q = re.sub(r"--.*?(\n|$)", "\n", q)
+        q = re.sub(r"/\*.*?\*/", "", q, flags=re.DOTALL)
+        q = re.sub(r"#.*?(\n|$)", "\n", q)
+        
+        q = q.strip()
         if "mongo" not in dialect.lower() and not q.endswith(";"):
             q = f"{q};"
         return " ".join(q.split())
@@ -106,8 +112,6 @@ class SqlGuard:
         lowered = sql_query.lower()
         errors: list[str] = []
         
-        if _COMMENT_PATTERN.search(lowered):
-            errors.append("SQL comments are not allowed.")
         if lowered.count(";") > 1:
             errors.append("Multiple SQL statements are not allowed.")
             

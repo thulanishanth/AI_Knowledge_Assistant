@@ -1,0 +1,66 @@
+################################################################################
+SERVER SESSION STARTED AT: 2026-04-25 17:13:02 IST
+TRIAL RUN: 2
+################################################################################
+
+================================================================================
+EXECUTION TIMESTAMP: 2026-04-25 17:14:10 IST
+LLM DETAILS: Qwen/Qwen2.5-7B-Instruct (Used ~192/0 tokens)
+--------------------------------------------------------------------------------
+USER QUERY:
+What is the highest lead time among bookings that were Canceled and had exactly 2 special requests?
+--------------------------------------------------------------------------------
+GENERATED SQL (Success (1 rows across 1 queries)):
+SELECT MAX(lead_time) AS highest_lead_time FROM hotel_reservations WHERE booking_status = 'Canceled' AND no_of_special_requests = 2 AND lead_time >= 0 AND lead_time <= 443 AND arrival_date >= 1 AND arrival_date <= 31 AND arrival_month >= 1 AND arrival_month <= 12 AND no_of_weekend_nights >= 0 AND no_of_weekend_nights <= 7 LIMIT 11;
+--------------------------------------------------------------------------------
+AI RESPONSE:
+The highest lead time is 350.
+--------------------------------------------------------------------------------
+ISOLATED RAG RULES INJECTED:
+CRITICAL BUSINESS RULES:
+CHECK (lead_time >= 0 AND lead_time <= 443)
+
+CHECK (arrival_date >= 1 AND arrival_date <= 31)
+
+CHECK (arrival_month >= 1 AND arrival_month <= 12)
+
+CHECK (no_of_weekend_nights >= 0 AND no_of_weekend_nights <= 7)
+
+CHECK (no_of_special_requests >= 0 AND no_of_special_requests <= 5)
+--------------------------------------------------------------------------------
+FULL PROMPT SENT TO LLM:
+None
+================================================================================
+
+================================================================================
+EXECUTION TIMESTAMP: 2026-04-25 17:14:10 IST
+LLM DETAILS: Qwen/Qwen2.5-7B-Instruct (Used ~940/8000 tokens)
+--------------------------------------------------------------------------------
+USER QUERY:
+What is the highest lead time among bookings that were Canceled and had exactly 2 special requests?
+--------------------------------------------------------------------------------
+GENERATED SQL (Success (1 rows across 1 queries)):
+SELECT MAX(lead_time) AS highest_lead_time FROM hotel_reservations WHERE booking_status = 'Canceled' AND no_of_special_requests = 2 AND lead_time >= 0 AND lead_time <= 443 AND arrival_date >= 1 AND arrival_date <= 31 AND arrival_month >= 1 AND arrival_month <= 12 AND no_of_weekend_nights >= 0 AND no_of_weekend_nights <= 7 LIMIT 11;
+--------------------------------------------------------------------------------
+AI RESPONSE:
+The highest lead time is 350.
+--------------------------------------------------------------------------------
+ISOLATED RAG RULES INJECTED:
+CRITICAL BUSINESS RULES:
+CHECK (lead_time >= 0 AND lead_time <= 443)
+
+CHECK (arrival_date >= 1 AND arrival_date <= 31)
+
+CHECK (arrival_month >= 1 AND arrival_month <= 12)
+
+CHECK (no_of_weekend_nights >= 0 AND no_of_weekend_nights <= 7)
+
+CHECK (no_of_special_requests >= 0 AND no_of_special_requests <= 5)
+--------------------------------------------------------------------------------
+FULL PROMPT SENT TO LLM:
+Decomposition Strategy: single
+
+Sub-Queries:
+What is the highest lead time among bookings that were Canceled and had exactly 2 special requests?
+================================================================================
+

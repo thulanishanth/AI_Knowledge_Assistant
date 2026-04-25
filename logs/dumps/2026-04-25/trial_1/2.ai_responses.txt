@@ -1,0 +1,8 @@
+The room type with the highest average lead time for non-canceled bookings is Room_Type 2, with an average lead time of 74.16 days.
+The room type with the highest average lead time for non-canceled bookings is Room_Type 2, with an average lead time of 74.16 days.
+There are 4,775 bookings with more weekend nights than week nights.
+There are 4,775 bookings with more weekend nights than week nights.
+The number of bookings with more weekend nights than week nights is 4775.
+The number of bookings with more weekend nights than week nights is 4775.
+The number of bookings with exactly 0 adults is 139.
+The number of bookings with exactly 0 adults is 139.

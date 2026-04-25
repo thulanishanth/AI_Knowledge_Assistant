@@ -1,0 +1,4 @@
+What is the average price per room for Not_Canceled bookings that stayed exactly 7 total nights (weekend nights + week nights)?
+What is the average price per room for Not_Canceled bookings that stayed exactly 7 total nights (weekend nights + week nights)?
+What is the average total stay length (weekend + week nights) for bookings that paid an avg_price_per_room of exactly $0.0?
+What is the average total stay length (weekend + week nights) for bookings that paid an avg_price_per_room of exactly $0.0?

@@ -1,0 +1,8 @@
+SELECT room_type_reserved, AVG(lead_time) AS avg_lead_time FROM hotel_reservations WHERE booking_status = 'Not_Canceled' AND room_type_reserved IN ('Room_Type 1', 'Room_Type 2', 'Room_Type 3', 'Room_Type 4', 'Room_Type 5', 'Room_Type 6', 'Room_Type 7') GROUP BY room_type_reserved ORDER BY avg_lead_time DESC LIMIT 10;
+SELECT room_type_reserved, AVG(lead_time) AS avg_lead_time FROM hotel_reservations WHERE booking_status = 'Not_Canceled' AND room_type_reserved IN ('Room_Type 1', 'Room_Type 2', 'Room_Type 3', 'Room_Type 4', 'Room_Type 5', 'Room_Type 6', 'Room_Type 7') GROUP BY room_type_reserved ORDER BY avg_lead_time DESC LIMIT 10;
+SELECT COUNT(*) FROM hotel_reservations WHERE no_of_weekend_nights > no_of_week_nights LIMIT 11;
+SELECT COUNT(*) FROM hotel_reservations WHERE no_of_weekend_nights > no_of_week_nights LIMIT 11;
+SELECT COUNT(*) FROM hotel_reservations WHERE no_of_weekend_nights > no_of_week_nights AND no_of_weekend_nights > 0 LIMIT 11;
+SELECT COUNT(*) FROM hotel_reservations WHERE no_of_weekend_nights > no_of_week_nights AND no_of_weekend_nights > 0 LIMIT 11;
+SELECT COUNT(*) AS number_of_bookings FROM hotel_reservations WHERE no_of_adults = 0 LIMIT 11;
+SELECT COUNT(*) AS number_of_bookings FROM hotel_reservations WHERE no_of_adults = 0 LIMIT 11;

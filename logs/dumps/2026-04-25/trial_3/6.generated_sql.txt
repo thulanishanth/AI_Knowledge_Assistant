@@ -1,0 +1,4 @@
+SELECT AVG(avg_price_per_room) AS average_price_per_room FROM hotel_reservations WHERE booking_status = 'Not_Canceled' AND (no_of_weekend_nights + no_of_week_nights) = 7 LIMIT 11;
+SELECT AVG(avg_price_per_room) AS average_price_per_room FROM hotel_reservations WHERE booking_status = 'Not_Canceled' AND (no_of_weekend_nights + no_of_week_nights) = 7 LIMIT 11;
+SELECT AVG(no_of_weekend_nights + no_of_week_nights) AS average_total_stay_length FROM hotel_reservations WHERE avg_price_per_room = 0.0 LIMIT 11;
+SELECT AVG(no_of_weekend_nights + no_of_week_nights) AS average_total_stay_length FROM hotel_reservations WHERE avg_price_per_room = 0.0 LIMIT 11;

@@ -24,28 +24,37 @@ from app.core.logging import clear_request_id, get_logger, set_request_id, setup
 setup_logging()
 logger = get_logger(__name__)
 
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown events."""
-    # Startup
+    # ── Startup ──
     await container.initialize()
-    
+
     # Sync database rules to vector store at startup
-    from app.services.rag_retriever import sync_database_rules_to_vector_store
-    await sync_database_rules_to_vector_store(container.vector_memory, settings.db_name)
+    try:
+        from app.services.rag_retriever import sync_database_rules_to_vector_store
+        synced = await sync_database_rules_to_vector_store(
+            container.vector_memory, settings.db_name
+        )
+        logger.info("Synced %d rules to vector store at startup.", synced)
+    except Exception as exc:
+        logger.warning("Rule sync at startup failed (non-fatal): %s", exc)
 
     app.state.cleanup_task = asyncio.create_task(
         container.memory_manager.run_cleanup_forever()
     )
-    logger.info("Application startup completed")
+    logger.info("Application startup completed.")
     yield
-    # Shutdown
-    cleanup_task = app.state.cleanup_task
+
+    # ── Shutdown ──
+    cleanup_task = getattr(app.state, "cleanup_task", None)
     if cleanup_task is not None:
         cleanup_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await cleanup_task
-    logger.info("Application shutdown completed")
+    logger.info("Application shutdown completed.")
+
 
 app = FastAPI(
     title="AI Knowledge Assistant",
@@ -63,6 +72,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-Request-ID"],
 )
 app.include_router(chat_router, prefix="/api/chat", tags=["Chat"])
+
 
 @app.middleware("http")
 async def request_logging_middleware(
@@ -86,18 +96,17 @@ async def request_logging_middleware(
     finally:
         clear_request_id()
 
+
 def _api_status_message(frontend_dir: Path, frontend_index: Path) -> str:
-    """Return a clear API root status message when static frontend is unavailable."""
     if frontend_dir.exists() and not frontend_index.exists():
-        return (
-            "AI Knowledge Assistant API is running. "
-            "Frontend index.html not found."
-        )
+        return "AI Knowledge Assistant API is running. Frontend index.html not found."
     return "AI Knowledge Assistant API is running. Frontend directory not found."
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_DIR = settings.frontend_path if settings.frontend_path.exists() else BASE_DIR / "frontend"
+FRONTEND_DIR = (
+    settings.frontend_path if settings.frontend_path.exists() else BASE_DIR / "frontend"
+)
 FRONTEND_INDEX = FRONTEND_DIR / "index.html"
 
 if FRONTEND_DIR.exists() and FRONTEND_INDEX.exists():
@@ -106,23 +115,17 @@ if FRONTEND_DIR.exists() and FRONTEND_INDEX.exists():
         StaticFiles(directory=str(FRONTEND_DIR), html=True, check_dir=True),
         name="frontend",
     )
-    logger.info("Frontend directory mounted successfully from %s", FRONTEND_DIR)
+    logger.info("Frontend mounted from %s", FRONTEND_DIR)
 else:
     if FRONTEND_DIR.exists():
         logger.warning(
-            "Frontend directory found at %s, but index.html is missing. "
-            "Root will return API status.",
-            FRONTEND_DIR,
+            "Frontend found at %s but index.html is missing.", FRONTEND_DIR
         )
     else:
-        logger.warning(
-            "Frontend directory not found at %s. Root will return API status.",
-            FRONTEND_DIR,
-        )
+        logger.warning("Frontend directory not found at %s.", FRONTEND_DIR)
 
     @app.get("/")
     def root() -> dict[str, str]:
-        """Return API status when the static frontend is unavailable."""
         return {"message": _api_status_message(FRONTEND_DIR, FRONTEND_INDEX)}
 
 
