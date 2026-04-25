@@ -1,4 +1,4 @@
-# app/services/sql_generation_service.py
+#app/services/sql_generation_service.py
 from __future__ import annotations
 import asyncio
 import re
@@ -62,27 +62,28 @@ class SQLGenerationService:
         self,
         question: str,
         schema: TableSchema,
+        ontology_context: str = "",  # <-- FIXED: Explicitly accepts ontology_context
         session_context: str = "",
         intent: Any | None = None,
         model: str = "local-llm",
         is_cloud: bool = False
     ) -> SqlGenerationResult:
-        
-        # Updated to pass session_context correctly to the dialect-aware builder
+
+        # Pass the ontology_context down to the prompt builder
         prompt = self._prompt_builder.build_sql_prompt(
-            question=question, 
-            session_context=session_context,
-            schema=schema
+            question=question,
+            schema=schema,
+            ontology_context=ontology_context,  # <-- FIXED
+            session_context=session_context
         )
-        
+
         try:
             candidate, notice = await self._robust_generate(prompt=prompt, model=model, is_cloud=is_cloud)
         except Exception as e:
             return SqlGenerationResult(validation=SqlValidationResult(is_valid=False, errors=[str(e)]))
-        
+
         sql_candidate = self._extract_query(candidate)
-        
-        # Guard validation with strict schema enforcement
+
         allowed = set(schema.schema_dict.keys())
         validation = self._sql_guard.validate(
             sql_candidate,
@@ -96,18 +97,19 @@ class SQLGenerationService:
             )
 
         repair_prompt = self._prompt_builder.build_sql_repair_prompt(
-            question=question, 
+            question=question,
+            schema=schema,
+            ontology_context=ontology_context,  # <-- FIXED
             session_context=session_context,
-            invalid_sql=sql_candidate, 
-            errors=validation.errors,
-            schema=schema
+            invalid_sql=sql_candidate,
+            errors=validation.errors
         )
-        
+
         try:
             repaired, repair_notice = await self._robust_generate(prompt=repair_prompt, model=model, is_cloud=is_cloud)
         except Exception as e:
              return SqlGenerationResult(validation=SqlValidationResult(is_valid=False, errors=[str(e)]), notice=notice)
-            
+
         repaired_sql = self._extract_query(repaired)
         repaired_validation = self._sql_guard.validate(
             repaired_sql,
@@ -119,31 +121,15 @@ class SQLGenerationService:
             sql=repaired_validation.normalized_sql if repaired_validation.is_valid else repaired_sql,
             validation=repaired_validation, strategy="llm_repair", notice=repair_notice or notice
         )
-        
+
     @staticmethod
     def _extract_query(text: str) -> str:
-        """
-        Universal extractor. Grabs code blocks regardless of dialect (SQL, JSON, Cypher).
-        Does NOT mandate the word 'SELECT', allowing NoSQL compatibility.
-        """
-        if not text: 
-            return ""
-            
+        if not text: return ""
         value = text.strip()
-        
-        # 1. Try to extract from standard markdown code fences (```sql, ```json, etc.)
         fenced = re.search(r"`{3}(?:\w+)?\n?(.*?)`{3}", value, re.IGNORECASE | re.DOTALL)
-        if fenced: 
-            extracted = fenced.group(1).strip()
-        else:
-            extracted = value
-
-        # 2. If it happens to be standard SQL, cleanly terminate it at the first semicolon.
-        # This prevents the LLM from trying to run multi-statement injections.
+        if fenced: extracted = fenced.group(1).strip()
+        else: extracted = value
         if re.search(r"^\s*(select|with)\b", extracted, re.IGNORECASE):
-            if ";" in extracted: 
-                extracted = extracted.split(";", 1)[0].strip()
+            if ";" in extracted: extracted = extracted.split(";", 1)[0].strip()
             return f"{extracted};"
-            
-        # 3. If it's NoSQL (like JSON or MongoDB syntax), return it as-is.
         return extracted

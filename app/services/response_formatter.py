@@ -45,8 +45,7 @@ class ResponseFormatter:
         if shape.kind == "scalar":
             label = _titleize(shape.scalar_label or "Result")
             value = _stringify(shape.scalar_value)
-            
-            # Catch LLM conversational fallbacks
+
             if str(shape.scalar_label).strip().lower() == "message":
                 return (
                     value,
@@ -77,35 +76,50 @@ class ResponseFormatter:
             )
             return text, {"kind": "record", "fields": fields}
 
-        # --- UPDATED: PROPER MARKDOWN TABLE GENERATION ---
+        # Handle formatting for Charts vs Tables
         preview = rows[: settings.max_preview_rows]
         columns = list(preview[0].keys())
-        
+
         formatted_rows = [
             [_stringify(row.get(column)) for column in columns]
             for row in preview
         ]
 
-        # Build Markdown Table String
         lines = ["Here are the matching results:\n"]
-        
         headers = [_titleize(column) for column in columns]
         lines.append("| " + " | ".join(headers) + " |")
         lines.append("|" + "|".join(["---"] * len(columns)) + "|")
-        
+
         for row in formatted_rows:
             lines.append("| " + " | ".join(row) + " |")
 
         if truncated:
             lines.append("\n*Showing a limited preview of the results.*")
 
+        # If the analyzer detected a chart pattern, return a chart payload!
+        presentation_payload = {
+            "kind": "rows",
+            "layout": "grid",
+            "columns": headers,
+            "rows": formatted_rows,
+            "truncated": truncated,
+        }
+
+        if shape.kind == "chart":
+            labels = [str(r.get(columns[0])) for r in preview]
+            # Convert values to float for Chart.js
+            try:
+                values = [float(r.get(columns[1])) for r in preview]
+                presentation_payload = {
+                    "kind": "bar_chart" if shape.is_categorical else "line_chart",
+                    "title": f"{headers[1]} by {headers[0]}",
+                    "labels": labels,
+                    "datasets": [{"label": headers[1], "data": values}]
+                }
+            except Exception:
+                pass # Fallback to table if math conversion fails
+
         return (
             "\n".join(lines),
-            {
-                "kind": "rows",
-                "layout": "grid",
-                "columns": headers,
-                "rows": formatted_rows,
-                "truncated": truncated,
-            },
+            presentation_payload,
         )
