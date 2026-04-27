@@ -17,7 +17,6 @@ from app.services.hybrid_rule_retriever import HybridRuleRetriever
 
 logger = get_logger(__name__)
 
-
 @dataclass
 class UniversalSchema:
     dataset_name: str
@@ -35,7 +34,7 @@ class UniversalSchema:
         lines = [
             f"Target Execution Dialect: {self.dialect.upper()}",
             f"Dataset Name: {self.dataset_name}",
-            "Schema Structure:",
+            "Schema Structure (Including allowed categorical values):",
         ]
         for table, cols in self.schema_dict.items():
             lines.append(f"\nTable: {table}")
@@ -66,6 +65,7 @@ class SchemaService:
         try:
             with self._get_db_connection() as conn:
                 with conn.cursor() as cursor:
+                    # 1. Fetch base columns
                     cursor.execute(
                         """
                         SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_KEY
@@ -75,16 +75,46 @@ class SchemaService:
                         """,
                         (settings.db_name,),
                     )
-                    for row in cursor.fetchall():
+                    columns_data = cursor.fetchall()
+
+                    # Group columns by table
+                    tables = {}
+                    for row in columns_data:
                         t = row["TABLE_NAME"]
-                        c = row["COLUMN_NAME"]
-                        d = row["DATA_TYPE"]
-                        pk = " [PRIMARY KEY]" if row["COLUMN_KEY"] == "PRI" else ""
+                        tables.setdefault(t, []).append(row)
+
+                    # 2. Profile categorical data for text columns
+                    for t, cols in tables.items():
                         schema_dict.setdefault(t, [])
-                        schema_dict[t].append(f"- {c} ({d}){pk}")
+                        for row in cols:
+                            c = row["COLUMN_NAME"]
+                            d = row["DATA_TYPE"]
+                            pk = " [PRIMARY KEY]" if row["COLUMN_KEY"] == "PRI" else ""
+
+                            category_string = ""
+                            # If it's a string column, try to find its unique values
+                            if d.lower() in ("varchar", "text", "char") and not pk:
+                                try:
+                                    # Use safe string formatting, avoiding execute() parameter substitution for dynamic DDL
+                                    count_query = "SELECT COUNT(DISTINCT `{}`) as d_count FROM `{}`".format(c, t)
+                                    cursor.execute(count_query)
+                                    d_count = cursor.fetchone()["d_count"]
+
+                                    # If it has 15 or fewer distinct values, pull them into the prompt
+                                    if 0 < d_count <= 15:
+                                        val_query = "SELECT DISTINCT `{}` as val FROM `{}` WHERE `{}` IS NOT NULL LIMIT 15".format(c, t, c)
+                                        cursor.execute(val_query)
+                                        vals = [str(v["val"]) for v in cursor.fetchall() if v["val"] is not None]
+                                        if vals:
+                                            category_string = f" [Allowed Values: {', '.join(repr(v) for v in vals)}]"
+                                except Exception as profile_err:
+                                    logger.debug(f"Could not profile column {c}: {profile_err}")
+
+                            schema_dict[t].append(f"- {c} ({d}){pk}{category_string}")
+
         except Exception as exc:
             logger.error("Schema introspection failed: %s", exc)
-            return UniversalSchema("error", "error", {}, "error_fingerprint")
+            return UniversalSchema("error", "mysql", {}, "error_fingerprint")
 
         fingerprint = hashlib.md5(str(schema_dict).encode()).hexdigest()
         return UniversalSchema(
@@ -127,7 +157,6 @@ class SchemaService:
                     for row in cursor.fetchall():
                         defn = str(row.get("rule_definition", "")).strip()
                         if defn:
-                            # Fix double-prefix bug
                             if re.match(r"^CRITICAL\s*:\s*CRITICAL\s*:", defn, re.IGNORECASE):
                                 defn = re.sub(
                                     r"^CRITICAL\s*:\s*CRITICAL\s*:\s*",
@@ -145,14 +174,12 @@ class SchemaService:
     async def select_examples(
         self, question: str, tenant_id: str = "default", limit: int = 5
     ) -> str:
-        """Dynamically select the best rules using Hybrid Semantic + Keyword Search."""
         t_start = time.perf_counter()
         rules = self._fetch_rules_sync(tenant_id)
         if not rules:
             return ""
 
         top_rules = await self._hybrid_retriever.retrieve(question, rules, top_k=limit)
-
         elapsed_ms = (time.perf_counter() - t_start) * 1000
         logger.info(
             "Hybrid RAG selected %d rules for tenant='%s' in %.1f ms",
@@ -160,11 +187,6 @@ class SchemaService:
             tenant_id,
             elapsed_ms,
         )
-        for idx, rule in enumerate(top_rules):
-            logger.debug(
-                "HybridRank[%d] (RRF: %.4f): %s...", idx, rule.rrf_score, rule.rule_text[:80]
-            )
-
         return "\n\n".join([r.rule_text for r in top_rules])
 
     def get_all_rules_raw(self, tenant_id: str = "default") -> list[str]:

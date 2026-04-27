@@ -1,4 +1,4 @@
-# app/memory/vector_memory.py
+#app/memory/vector_memory.py
 """Vector memory orchestration for user and global knowledge retrieval."""
 
 from __future__ import annotations
@@ -86,23 +86,40 @@ class VectorMemory:
     # ──────────────────────────────────────────────────────
 
     async def get_semantic_sql(
-        self, query: str, schema_fingerprint: str, similarity_threshold: float = 0.95
+        self, query: str, schema_fingerprint: str
     ) -> str | None:
-        """Search for a highly similar cached SQL to avoid LLM calls."""
+        """Search for cached SQL, enforcing an EXACT string match to prevent semantic collisions."""
         try:
             embedding = await self.generate_embedding(query)
+
+            # 1. Ask the vector store for the closest match
             records = await self._vector_store.query_records(
                 collection_name=self._sql_cache_collection,
                 query_embedding=embedding,
                 top_k=1,
                 filters={"schema_fingerprint": schema_fingerprint},
             )
-            if records and records[0].score >= similarity_threshold:
-                logger.info(
-                    "Semantic Cache HIT (Score: %.2f) — bypassing LLM.", records[0].score
-                )
+
+            if not records:
+                return None
+
+            # 2. THE FIX: The Lexical Gatekeeper
+            # Strip whitespace and make lowercase to compare the actual text
+            retrieved_question = records[0].text.strip().lower()
+            current_question = query.strip().lower()
+
+            # 3. Only return the cache if the strings are identical
+            if retrieved_question == current_question:
+                logger.info("Exact Lexical Cache HIT — bypassing LLM.")
                 return str(records[0].metadata.get("sql", ""))
+
+            # If they don't match exactly, it's a semantic collision. Block it!
+            logger.debug(
+                "Cache MISS (Semantic collision blocked). Requested: '%s' | Found: '%s'",
+                current_question, retrieved_question
+            )
             return None
+
         except Exception as e:
             logger.error("Semantic SQL Cache retrieval failed: %s", e)
             return None
