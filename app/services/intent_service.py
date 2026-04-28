@@ -1,4 +1,7 @@
-# app/services/intent_service.py
+#app/services/intent_service.py
+"""
+Intent service — pure LLM routing, no hardcoded domain logic.
+"""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -45,10 +48,10 @@ class CriticReview:
 
 
 class IntentService:
-    """Multi-stage planner using native LLM Tool Calling."""
+    """Multi-stage planner: rewrite → plan → (optional) critic."""
 
     def __init__(self, prompt_builder: PromptBuilder) -> None:
-        self._prompt_builder = prompt_builder
+        self._pb = prompt_builder
 
     def analyze(
         self,
@@ -56,32 +59,25 @@ class IntentService:
         memory_context: str = "",
         dialogue_state: str = "",
         chat_history: str = "",
+        schema_summary: str = "",
     ) -> dict[str, Any]:
         question = " ".join((user_question or "").split()).strip()
 
-        # Step 1: Rewrite & Follow-up Detection
         rewrite = self._rewrite_question(question, chat_history, dialogue_state)
+        plan = self._build_execution_plan(
+            question, rewrite, memory_context, dialogue_state, schema_summary
+        )
 
-        # Step 2: Build the Plan (CoT)
-        plan = self._build_execution_plan(question, rewrite, memory_context, dialogue_state)
-
-        # Step 3: The Plan Critic — only for uncertain/follow-up cases
         if plan.confidence < 0.85 or plan.route == "clarify" or rewrite.is_follow_up:
-            reviewed_plan = self._review_plan(question, rewrite, plan, memory_context, dialogue_state)
-            if reviewed_plan:
-                plan = reviewed_plan
+            reviewed = self._review_plan(question, rewrite, plan, memory_context, dialogue_state)
+            if reviewed:
+                plan = reviewed
 
-        # Ensure clarifying question is set when route demands it
         if plan.route == "clarify" and not plan.clarifying_question:
             plan.needs_clarification = True
-            plan.clarifying_question = "Could you provide a bit more detail so I can query the right data?"
+            plan.clarifying_question = "Could you provide a bit more detail?"
 
-        log_event(
-            "info",
-            "intent_analysis_complete",
-            route=plan.route,
-            follow_up=rewrite.is_follow_up,
-        )
+        log_event("info", "intent_analysis_complete", route=plan.route, follow_up=rewrite.is_follow_up)
 
         result = asdict(plan)
         result["is_follow_up"] = rewrite.is_follow_up
@@ -95,15 +91,13 @@ class IntentService:
         schema: Any,
         session_context: str = "",
     ) -> dict[str, Any]:
-        """The SQL Critic: Evaluates generated SQL using Tool Calling."""
-        prompt = self._prompt_builder.build_sql_critic_prompt(
+        prompt = self._pb.build_sql_critic_prompt(
             question=question,
             sql=sql,
             schema=schema,
             session_context=session_context,
         )
-
-        tool_schema = {
+        tool = {
             "name": "submit_sql_review",
             "description": "Submit the official review of the SQL candidate.",
             "parameters": {
@@ -116,31 +110,25 @@ class IntentService:
                 "required": ["verdict", "reason"],
             },
         }
-
         try:
             parsed = call_llm_with_tool(
-                prompt=prompt,
-                tool_schema=tool_schema,
-                tool_name="submit_sql_review",
-                temperature=0.0,
+                prompt=prompt, tool_schema=tool,
+                tool_name="submit_sql_review", temperature=0.0,
             )
-            return parsed if parsed else {"verdict": "approve", "reason": "Empty JSON fallback"}
-        except Exception as e:
-            logger.warning("SQL Critic failed: %s", e)
+            return parsed if parsed else {"verdict": "approve", "reason": "fallback"}
+        except Exception as exc:
+            logger.warning("SQL Critic failed: %s", exc)
             return {"verdict": "approve", "reason": "Critic offline."}
 
     def answer_general_question(
         self, user_question: str, memory_context: str = ""
     ) -> str:
-        """Answer a question that doesn't require database access."""
-        prompt = self._prompt_builder.build_general_answer_prompt(
-            user_question, memory_context
-        )
+        prompt = self._pb.build_general_answer_prompt(user_question, memory_context)
         try:
             return call_llm(prompt=prompt, max_tokens=300, temperature=0.3).strip()
-        except Exception as e:
-            logger.error("General answer LLM call failed: %s", e)
-            return "I can help with general questions and with your data queries."
+        except Exception as exc:
+            logger.error("General answer failed: %s", exc)
+            return "I can help with general questions and data queries."
 
     # ──────────────────────────────────────────────────────
     # INTERNAL HELPERS
@@ -149,16 +137,11 @@ class IntentService:
     def _rewrite_question(
         self, question: str, chat_history: str, state: str
     ) -> RewriteResult:
-        prompt = self._prompt_builder.build_rewrite_prompt(
-            user_question=question,
-            chat_history=chat_history,
-            dialogue_state=state,
-        )
-
+        prompt = self._pb.build_rewrite_prompt(question, chat_history, state)
         if not prompt:
             return RewriteResult(standalone_question=question)
 
-        tool_schema = {
+        tool = {
             "name": "submit_rewrite",
             "description": "Submit the follow-up analysis.",
             "parameters": {
@@ -176,17 +159,13 @@ class IntentService:
                 "required": ["standalone_question", "is_follow_up"],
             },
         }
-
         try:
-            parsed = call_llm_with_tool(
-                prompt, tool_schema, "submit_rewrite", max_tokens=300, temperature=0.0
-            )
+            parsed = call_llm_with_tool(prompt, tool, "submit_rewrite", max_tokens=300, temperature=0.0)
             if parsed:
                 valid_fields = {k: v for k, v in parsed.items() if k in RewriteResult.__dataclass_fields__}
                 return RewriteResult(**valid_fields)
-        except Exception as e:
-            logger.warning("Rewrite LLM call failed: %s", e)
-
+        except Exception as exc:
+            logger.warning("Rewrite failed: %s", exc)
         return RewriteResult(standalone_question=question)
 
     def _build_execution_plan(
@@ -195,19 +174,23 @@ class IntentService:
         rewrite: RewriteResult,
         context: str,
         state: str,
+        schema_summary: str = "",
     ) -> ExecutionPlan:
-        prompt = self._prompt_builder.build_plan_prompt(
+        prompt = self._pb.build_plan_prompt(
             user_question=question,
             rewritten_question=rewrite.standalone_question,
             recent_context=context,
             dialogue_state=state,
             rewrite_result=str(asdict(rewrite)),
+            schema_summary=schema_summary,
         )
-
         if not prompt:
-            return ExecutionPlan(route="database_query", standalone_question=rewrite.standalone_question or question)
+            return ExecutionPlan(
+                route="database_query",
+                standalone_question=rewrite.standalone_question or question,
+            )
 
-        tool_schema = {
+        tool = {
             "name": "submit_execution_plan",
             "description": "Submit the routing and execution plan.",
             "parameters": {
@@ -218,8 +201,7 @@ class IntentService:
                         "type": "string",
                         "enum": [
                             "database_query", "clarify", "schema_answer",
-                            "show_sql", "explain_last_answer", "diagnose",
-                            "general_answer",
+                            "show_sql", "explain_last_answer", "general_answer",
                         ],
                     },
                     "standalone_question": {"type": "string"},
@@ -234,16 +216,13 @@ class IntentService:
                 "required": ["thought_process", "route", "standalone_question", "confidence"],
             },
         }
-
         try:
-            parsed = call_llm_with_tool(
-                prompt, tool_schema, "submit_execution_plan", max_tokens=400, temperature=0.0
-            )
+            parsed = call_llm_with_tool(prompt, tool, "submit_execution_plan", max_tokens=400, temperature=0.0)
             if parsed:
                 valid_fields = {k: v for k, v in parsed.items() if k in ExecutionPlan.__dataclass_fields__}
                 return ExecutionPlan(**valid_fields)
-        except Exception as e:
-            logger.error("Planner LLM call failed: %s", e)
+        except Exception as exc:
+            logger.error("Planner failed: %s", exc)
 
         return ExecutionPlan(
             route="database_query",
@@ -258,18 +237,17 @@ class IntentService:
         context: str,
         state: str,
     ) -> ExecutionPlan | None:
-        prompt = self._prompt_builder.build_plan_critic_prompt(
+        prompt = self._pb.build_plan_critic_prompt(
             user_question=question,
             rewritten_question=rewrite.standalone_question,
             plan_json=str(asdict(plan)),
             recent_context=context,
             dialogue_state=state,
         )
-
         if not prompt:
             return None
 
-        tool_schema = {
+        tool = {
             "name": "submit_plan_review",
             "description": "Submit the plan review verdict.",
             "parameters": {
@@ -284,29 +262,25 @@ class IntentService:
                 "required": ["verdict", "reason"],
             },
         }
-
         try:
-            parsed = call_llm_with_tool(
-                prompt, tool_schema, "submit_plan_review", max_tokens=200, temperature=0.0
-            )
+            parsed = call_llm_with_tool(prompt, tool, "submit_plan_review", max_tokens=200, temperature=0.0)
             if not parsed:
                 return None
 
-            valid_fields = {k: v for k, v in parsed.items() if k in CriticReview.__dataclass_fields__}
-            review = CriticReview(**valid_fields)
-
-            if review.verdict == "approve":
+            verdict = parsed.get("verdict", "approve")
+            if verdict == "approve":
                 return plan
-            elif review.verdict == "clarify":
+            if verdict == "clarify":
                 plan.route = "clarify"
                 plan.needs_clarification = True
-                plan.clarifying_question = review.clarifying_question or "Could you clarify your question?"
+                plan.clarifying_question = (
+                    parsed.get("clarifying_question") or "Could you clarify your question?"
+                )
                 return plan
-            # replan — fall back to safe default
             return ExecutionPlan(
                 route="database_query",
                 standalone_question=rewrite.standalone_question,
             )
-        except Exception as e:
-            logger.warning("Plan critic failed: %s", e)
+        except Exception as exc:
+            logger.warning("Plan critic failed: %s", exc)
             return None

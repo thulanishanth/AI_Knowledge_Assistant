@@ -1,166 +1,128 @@
-# app/services/prompt_builder.py
-from __future__ import annotations
-import json
-import re
-from typing import Any
-from app.core.settings import settings
+#app/services/prompt_builder.py
+"""
+Prompt builder — fully dynamic, schema-first.
 
-CALCULATION_RULES_BLOCK = """
-CALCULATION RULES (apply to every query):
-OPERATION MAPPING:
-  total / sum / overall / aggregate   → SUM(field)
-  average / mean                      → AVG(field) — never compute as SUM/COUNT manually
-  how many / count / number of        → COUNT(*) for all rows; COUNT(DISTINCT col) for unique
-  percentage / percent / rate         → (part / NULLIF(whole, 0)) * 100
-  growth / MoM / YoY / increase %     → ((current - previous) / NULLIF(previous, 0)) * 100
-ROW-LEVEL vs AGGREGATE (critical rule):
-  NEVER: SUM(a) * SUM(b) for a row-level product. CORRECT: SUM(a * b)
-FILTER-BEFORE-AGGREGATE: Always apply WHERE before GROUP BY and aggregate functions.
-ZERO SAFETY: Protect every division with NULLIF(denominator, 0).
-SCOPE CONSISTENCY: In any ratio or percentage, numerator and denominator must use IDENTICAL WHERE filters.
-""".strip()
+No hardcoded domain terms, no hardcoded calculation rules, no hardcoded column names.
+The LLM reads the schema (with sample values + statistics) and figures out the
+domain, calculations, and mappings itself.
+"""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from app.core.settings import settings
 
 
 class PromptBuilder:
-    TEACHING_SCHEMA = {"canonical_term": "name", "aliases": ["words"], "sql_condition": "WHERE clause", "description": "desc"}
-    REWRITE_SCHEMA = {"normalized_question": "str", "standalone_question": "str", "is_follow_up": False, "follow_up_strategy": "none", "missing_context": []}
-    PLAN_SCHEMA = {"thought_process": "str", "route": "database_query", "standalone_question": "str", "user_goal": "str", "needs_clarification": False, "clarifying_question": "", "requires_schema": True, "requires_business_mapping": False, "follow_up_strategy": "none", "confidence": 0.95, "filters": {}, "date_range": None}
-    CRITIC_SCHEMA = {"verdict": "approve", "reason": "", "needs_clarification": False, "clarifying_question": "", "confidence": 0.9}
-    SQL_CRITIC_SCHEMA = {"verdict": "approve", "reason": "", "clarifying_question": ""}
 
     @staticmethod
     def _trim(text: str | None, limit: int = 4000) -> str:
         return (text or "").strip()[:limit].rstrip()
 
-    @staticmethod
-    def _schema_block(schema: dict) -> str:
-        return json.dumps(schema, ensure_ascii=True, indent=2)
-
-    def _prune_schema(self, schema: Any) -> str:
+    def _schema_block(self, schema: Any) -> str:
+        """
+        Render the richest possible schema representation.
+        Uses ColumnProfile.to_prompt_line() — includes allowed values,
+        numeric ranges, and null info so the LLM understands the domain.
+        """
+        if hasattr(schema, "to_prompt_block"):
+            return schema.to_prompt_block()
         if hasattr(schema, "schema_dict"):
             lines = [
-                f"Dialect: {getattr(schema, 'dialect', 'SQL').upper()}",
-                f"Database: {getattr(schema, 'dataset_name', 'default')}",
-                "Tables:",
+                f"Database: {getattr(schema, 'dataset_name', 'unknown')}",
+                f"Dialect: {getattr(schema, 'dialect', 'sql').upper()}",
+                "Schema:",
             ]
-            for tname, cols in schema.schema_dict.items():
-                if tname.lower() in {"chat_messages", "alembic_version"}:
-                    continue
-                lines.append(f"\n  {tname}")
+            for table, cols in schema.schema_dict.items():
+                lines.append(f"\nTable: `{table}`")
                 for col in cols:
-                    lines.append(f"    {col}")
-            return "\n".join(lines)
-        # Fallback for TableSchema with .tables attribute
-        if hasattr(schema, "tables"):
-            lines = [
-                f"Dialect: {getattr(schema, 'dialect', 'SQL').upper()}",
-                f"Database: {getattr(schema, 'dataset_name', 'default')}",
-                "Tables:",
-            ]
-            for tname, cols in schema.tables.items():
-                lines.append(f"\n  {tname}")
-                for col in cols:
-                    col_str = f"    - {col.name} ({col.data_type})"
-                    if col.is_primary_key:
-                        col_str += " [PRIMARY KEY]"
-                    lines.append(col_str)
+                    lines.append(f"  {col}")
             return "\n".join(lines)
         return str(schema)
 
+    # Keep _prune_schema as alias for backward compatibility
+    def _prune_schema(self, schema: Any) -> str:
+        return self._schema_block(schema)
+
     # ─────────────────────────────────────────────
-    # SQL GENERATION
+    # SQL GENERATION — schema-first, no hardcoding
     # ─────────────────────────────────────────────
 
     def build_sql_prompt(
-        self, question: str, schema: Any, ontology_context: str, session_context: str = "", examples_context: str = ""
+        self,
+        question: str,
+        schema: Any,
+        session_context: str = "",
+        examples_context: str = "",
+        ontology_context: str = "",   # kept for signature compat, merged into context
     ) -> str:
-        schema_block = self._prune_schema(schema)
-        clean_context = session_context.replace("Vector Memory:", "").strip() if session_context else ""
-        relevant_rules = clean_context if clean_context else "(No specific business rules required)"
-        examples = self._trim(examples_context, 1200) or "(none)"
+        schema_block = self._schema_block(schema)
+        context_block = self._trim(session_context, 2000) or "(none)"
+        rules_block = self._trim(examples_context, 1200) or "(none — answer using schema alone)"
 
-        return f"""
-You are a production-grade SQL analyst for a business database.
+        return f"""You are an expert SQL analyst. Convert the user's question into ONE correct SQL query.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TASK: Convert the user's business question into ONE correct SQL query.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━ DATABASE SCHEMA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(The [Values] list for each column shows what data exists — use this to map
+ user phrases to the correct column values. Do NOT guess column names.)
+{schema_block}
 
-STEP 1 — CHAIN-OF-THOUGHT (write as SQL comments at the top of your output):
-  a) What is the user EXPLICITLY asking for?
-  b) Which business metric does this map to? Check METRIC GLOSSARY.
-  c) Which table and columns satisfy this metric?
-  d) Which calculation operation applies?
-  e) Which business rules from the list below are DIRECTLY relevant?
-  f) Are any two rules in conflict? If yes, which wins? (Explicit request > CRITICAL rules > Defaults)
-  g) What filters, grouping, and ordering does this need?
+━━━ CONVERSATION CONTEXT (resolve follow-up references) ━━━━━━━━━━━━━━━━━
+{context_block}
 
-STEP 2 — SQL QUERY
-Write the single correct SQL after the comments.
+━━━ BUSINESS RULES (backup enrichment — apply only when directly relevant) ━
+{rules_block}
 
-HARD RULES:
-  1. Use ONLY columns from the schema below. Never invent columns.
-  2. ONE statement only (SELECT or WITH...SELECT).
-  3. LIMIT {settings.max_query_results} on row queries. No LIMIT on aggregates.
-  4. If unanswerable from schema: output exactly INSUFFICIENT_CONTEXT
+━━━ SQL RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Use ONLY columns and tables from the schema above.
+2. Map user terms → column values using the [Values] hints:
+     e.g. if user says "platform X" and [Values] shows 'Online', use 'Online'.
+3. One SELECT or WITH…SELECT statement only.
+4. Aggregate queries (COUNT/SUM/AVG/MIN/MAX without GROUP BY on full table): no LIMIT.
+   Row-returning queries: LIMIT {settings.max_query_results}.
+5. Protect every division: NULLIF(denominator, 0).
+6. Percentage: (part / NULLIF(whole, 0)) * 100.
+7. If question CANNOT be answered from this schema: output exactly INSUFFICIENT_CONTEXT.
+8. Output ONLY the SQL — no explanation, no markdown fences, no comments.
+
+━━━ QUESTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{question}
+
+SQL:""".strip()
+
+    def build_sql_repair_prompt(
+        self,
+        question: str,
+        schema: Any,
+        session_context: str,
+        invalid_sql: str,
+        errors: list[str],
+        ontology_context: str = "",
+    ) -> str:
+        schema_block = self._schema_block(schema)
+        context_block = self._trim(session_context, 1200) or "(none)"
+        error_block = "\n".join(f"  - {e}" for e in errors) or "  - Invalid SQL"
+
+        return f"""Repair the broken SQL query below. Fix ONLY the listed errors.
 
 SCHEMA:
 {schema_block}
 
-METRIC GLOSSARY (Live Ontology Matches):
-{ontology_context}
+CONTEXT:
+{context_block}
 
-{CALCULATION_RULES_BLOCK}
-
-BUSINESS RULES FOR THIS QUESTION:
-{relevant_rules}
-
-SQL EXAMPLES:
-{examples}
-
-USER QUESTION:
-{question}
-
-OUTPUT FORMAT:
--- a) User asks for: [exact intent]
--- b) Metric: [metric name]
--- c) Columns: [which columns]
--- d) Operation: [formula type]
--- e) Rules applied: [rule names]
--- f) Conflict: [resolution]
--- g) Filters/grouping: [description]
-[SQL query here]
-""".strip()
-
-    def build_sql_repair_prompt(
-        self, question: str, schema: Any, ontology_context: str, session_context: str, invalid_sql: str, errors: list[str]
-    ) -> str:
-        clean_context = session_context.replace("Vector Memory:", "").strip() if session_context else ""
-        relevant_rules = clean_context if clean_context else "(No specific business rules required)"
-        error_block = "\n".join(f"  - {e}" for e in errors) if errors else "  - Invalid SQL"
-
-        return f"""
-You are repairing a failed SQL query.
 QUESTION: {question}
-SCHEMA:
-{self._prune_schema(schema)}
 
-METRIC GLOSSARY:
-{ontology_context}
-
-RELEVANT BUSINESS RULES:
-{relevant_rules}
-
-PREVIOUS BROKEN SQL:
+BROKEN SQL:
 {invalid_sql}
 
 ERRORS TO FIX:
 {error_block}
 
-OUTPUT:
--- Fix applied: [what changed and why]
-[Corrected SQL]
-""".strip()
+Output ONLY the corrected SQL. No explanation, no fences.
+
+SQL:""".strip()
 
     # ─────────────────────────────────────────────
     # INTENT: REWRITE / FOLLOW-UP DETECTION
@@ -170,28 +132,28 @@ OUTPUT:
         self, user_question: str, chat_history: str = "", dialogue_state: str = ""
     ) -> str:
         history_block = self._trim(chat_history, 1500) or "(no prior conversation)"
-        state_block = self._trim(dialogue_state, 500) or "(no prior state)"
+        state_block = self._trim(dialogue_state, 400) or "(none)"
 
-        return f"""
-You are an expert conversation analyst. Your job is to determine if the user's message is a follow-up to the conversation history, and if so, rewrite it as a fully self-contained standalone question.
+        return f"""Determine whether the user's message is a follow-up to the conversation.
 
 CONVERSATION HISTORY (most recent last):
 {history_block}
 
-PREVIOUS DIALOGUE STATE:
+PREVIOUS STATE:
 {state_block}
 
-USER'S CURRENT MESSAGE:
-"{user_question}"
+USER MESSAGE: "{user_question}"
 
-INSTRUCTIONS:
-1. Check if the message references anything from the conversation (e.g., "that", "those", "same", "it", "them", "last year", "the previous result").
-2. If it IS a follow-up: rewrite it as a complete, standalone question that includes all referenced context.
-3. If it is NOT a follow-up: normalized_question and standalone_question are the same as the input.
-4. follow_up_strategy options: "none" | "refinement" (filter change) | "drill_down" (more detail) | "new_metric" (different metric same scope) | "correction" (user corrects something).
-5. missing_context: list anything needed to answer but not present.
+TASK:
+1. Does the message reference anything from prior conversation
+   (e.g., "that", "those", "same", "it", "the previous result")?
+2. If YES — rewrite as a fully self-contained standalone question with all
+   referenced context spelled out explicitly.
+3. If NO — standalone_question equals the original.
 
-RESPOND using the submit_rewrite tool.
+follow_up_strategy: "none" | "refinement" | "drill_down" | "new_metric" | "correction"
+
+Respond using the submit_rewrite tool.
 """.strip()
 
     # ─────────────────────────────────────────────
@@ -205,41 +167,38 @@ RESPOND using the submit_rewrite tool.
         recent_context: str = "",
         dialogue_state: str = "",
         rewrite_result: str = "",
+        schema_summary: str = "",
     ) -> str:
-        context_block = self._trim(recent_context, 1500) or "(none)"
-        state_block = self._trim(dialogue_state, 500) or "(no prior state)"
+        context_block = self._trim(recent_context, 1000) or "(none)"
+        state_block = self._trim(dialogue_state, 400) or "(none)"
+        schema_hint = self._trim(schema_summary, 500) or "(not provided)"
 
-        return f"""
-You are a senior query router for a business database assistant. Decide the best route for this user request.
+        return f"""You are a query router for a database assistant.
 
-AVAILABLE ROUTES:
-  database_query   — User wants data from the database (most common).
-  general_answer   — General question not needing database data (e.g., "what does ADR mean?").
-  clarify          — The question is too ambiguous to query safely; ask one clarifying question.
-  schema_answer    — User is asking about the structure of the data (tables, columns).
-  show_sql         — User wants to see the SQL query that was run.
-  explain_last_answer — User wants more explanation of the previous answer.
-  diagnose         — User reports a data quality issue or inconsistency.
+ROUTES:
+  database_query     — User wants data from the database (use this by default).
+  general_answer     — Pure concept explanation needing no data.
+  clarify            — Question is genuinely too ambiguous to query.
+  schema_answer      — User asks about table/column structure.
+  show_sql           — User wants to see the SQL from the previous answer.
+  explain_last_answer — User wants more detail about the previous answer.
 
-DIALOGUE STATE (previous turn context):
-{state_block}
+SCHEMA SUMMARY:
+{schema_hint}
 
-RECENT MEMORY CONTEXT:
-{context_block}
+STATE: {state_block}
+CONTEXT: {context_block}
+REWRITE: {rewrite_result}
 
-REWRITE ANALYSIS:
-{rewrite_result}
+ORIGINAL: "{user_question}"
+STANDALONE: "{rewritten_question}"
 
-ORIGINAL QUESTION: "{user_question}"
-REWRITTEN STANDALONE QUESTION: "{rewritten_question}"
+RULES:
+- Default to database_query for numbers, counts, lists, comparisons, dates.
+- Use general_answer ONLY for pure definitions needing zero database data.
+- Use clarify only when there are truly multiple interpretations.
 
-ROUTING RULES:
-- Default to database_query when the question involves numbers, counts, totals, lists, comparisons, or dates.
-- Use general_answer ONLY for pure definitions, how-to questions, or explanations that need NO data.
-- Use clarify only if the question is genuinely ambiguous (e.g., "show me sales" — which date range? which product?).
-- confidence: 0.0–1.0 reflecting your certainty in the chosen route.
-
-RESPOND using the submit_execution_plan tool.
+Respond using the submit_execution_plan tool.
 """.strip()
 
     # ─────────────────────────────────────────────
@@ -255,24 +214,19 @@ RESPOND using the submit_execution_plan tool.
         recent_context: str = "",
         dialogue_state: str = "",
     ) -> str:
-        return f"""
-You are a critical reviewer checking a routing plan for a database assistant.
+        return f"""Review this routing plan. Be conservative — only override if clearly wrong.
 
-ORIGINAL QUESTION: "{user_question}"
-REWRITTEN QUESTION: "{rewritten_question}"
-PROPOSED PLAN: {plan_json}
+QUESTION: "{user_question}"
+STANDALONE: "{rewritten_question}"
+PLAN: {plan_json}
+CONTEXT: {self._trim(recent_context, 500) or "(none)"}
+STATE: {self._trim(dialogue_state, 300) or "(none)"}
 
-DIALOGUE STATE: {self._trim(dialogue_state, 400) or "(none)"}
-CONTEXT: {self._trim(recent_context, 800) or "(none)"}
+- Correct → verdict = "approve"
+- Genuinely ambiguous → verdict = "clarify" + clarifying_question
+- Clearly wrong route → verdict = "replan"
 
-YOUR TASK:
-- If the plan is correct and the route makes sense: verdict = "approve".
-- If the question is genuinely ambiguous: verdict = "clarify" and provide a clarifying_question.
-- If the route is clearly wrong (e.g., database_query for a definition question): verdict = "replan".
-
-Be conservative — only override if clearly wrong. When in doubt, approve.
-
-RESPOND using the submit_plan_review tool.
+Respond using the submit_plan_review tool.
 """.strip()
 
     # ─────────────────────────────────────────────
@@ -288,111 +242,160 @@ RESPOND using the submit_plan_review tool.
         session_context: str = "",
         examples_context: str = "",
     ) -> str:
-        schema_block = self._prune_schema(schema)
-        rules_block = self._trim(session_context, 1000) or "(none)"
+        schema_block = self._schema_block(schema)
+        rules_block = self._trim(session_context, 800) or "(none)"
 
-        return f"""
-You are a SQL quality reviewer. Evaluate whether the SQL query correctly and safely answers the user's question.
+        return f"""Review whether this SQL correctly answers the question.
 
 QUESTION: "{question}"
 SCHEMA:
 {schema_block}
+CONTEXT: {rules_block}
+SQL: {sql}
 
-BUSINESS RULES:
+Check: (1) answers the exact question? (2) valid columns/tables? (3) correct aggregation?
+(4) logic errors? (5) dangerous unbounded query?
+
+VERDICT: "approve" | "retry" (provide reason) | "clarify"
+
+Respond using the submit_sql_review tool.
+""".strip()
+
+    # ─────────────────────────────────────────────
+    # ANALYTICAL DECOMPOSITION
+    # ─────────────────────────────────────────────
+
+    def build_analytical_plan_prompt(
+        self,
+        question: str,
+        schema_block: str,
+        business_rules: str = "",
+    ) -> str:
+        rules_block = business_rules.strip() or "(none)"
+        return f"""You are a data analyst planning a step-by-step answer to a business question.
+
+SCHEMA:
+{schema_block}
+
+BUSINESS RULES (backup):
 {rules_block}
 
-GENERATED SQL:
-{sql}
+QUESTION: "{question}"
 
-REVIEW CRITERIA:
-1. Does the SQL answer the exact question asked?
-2. Are the correct columns and tables used?
-3. Is any aggregation (SUM, AVG, COUNT) correct for the question?
-4. Are there any obvious logic errors (wrong filters, missing GROUP BY, etc.)?
-5. Could this query cause issues (e.g., no LIMIT on a potentially large table)?
+Does this TRULY need multiple SQL queries, or can one SQL (with CTEs/subqueries) answer it?
 
-VERDICT OPTIONS:
-  "approve"  — SQL is correct and safe to execute.
-  "retry"    — SQL has a fixable problem; provide the reason.
-  "clarify"  — The question needs clarification before a correct SQL can be written.
+MULTI-STEP NEEDED when:
+- Exclusion logic where the excluded set must be computed first
+- One result depends numerically on a previous result
+- Comparing two fully independent subsets incorrectly handled by one SQL
 
-RESPOND using the submit_sql_review tool.
+NOT NEEDED when:
+- A CTE or subquery handles the full logic
+- A WHERE clause with AND/OR covers it
+
+If multi-step: max 4 steps, each a complete SELECT, focused on ONE thing.
+
+Respond using the submit_reasoning_plan tool.
+""".strip()
+
+    def build_analytical_synthesis_prompt(
+        self, question: str, steps_block: str
+    ) -> str:
+        return f"""You are a senior business analyst. Synthesize an answer from these step results.
+
+QUESTION: "{question}"
+
+STEP RESULTS:
+{steps_block}
+
+RULES:
+1. State the key number(s) first.
+2. One sentence on how it was derived.
+3. Business language only — no SQL, no technical terms.
+4. 2–3 sentences max. Format numbers with commas (3,253 not 3253).
+5. If a step failed, note what could not be determined.
+
+Respond using the submit_final_answer tool.
 """.strip()
 
     # ─────────────────────────────────────────────
-    # JSON REPAIR
+    # COMPOUND DECOMPOSITION
     # ─────────────────────────────────────────────
 
-    def build_json_repair_prompt(
+    def build_decompose_prompt(
+        self, question: str, schema_block: str, dialogue_state: str = ""
+    ) -> str:
+        return f"""Decide whether this question needs multiple SQL queries.
+
+SCHEMA:
+{schema_block}
+
+STATE: {dialogue_state or "(none)"}
+
+QUESTION: "{question}"
+
+Only mark compound if ONE SQL truly cannot answer it.
+Compound examples: "X vs Y", "this month vs last month", dependent sub-calculations.
+
+merge_strategy: "single" | "compare" | "join" | "append"
+
+Respond using the submit_decomposition tool.
+""".strip()
+
+    # ─────────────────────────────────────────────
+    # TERM RESOLUTION (no regex — pure LLM + schema)
+    # ─────────────────────────────────────────────
+
+    def build_term_resolution_prompt(
         self,
-        *,
-        schema_name: str,
-        schema: dict,
-        previous_output: str,
-        validation_errors: list[str],
+        question: str,
+        schema_block: str,
+        business_rules: str = "",
     ) -> str:
-        error_block = "\n".join(f"  - {e}" for e in validation_errors)
-        return f"""
-The previous LLM output was supposed to match the schema "{schema_name}" but failed validation.
+        rules_block = business_rules.strip() or "(none)"
+        return f"""A user asked a question that may contain domain terms, brand names, or
+business phrases that need mapping to database column values.
 
-EXPECTED SCHEMA:
-{json.dumps(schema, indent=2)}
+SCHEMA (use the [Values] lists to make the mapping):
+{schema_block}
 
-PREVIOUS (BROKEN) OUTPUT:
-{self._trim(previous_output, 1500)}
+BUSINESS RULES (backup):
+{rules_block}
 
-VALIDATION ERRORS:
-{error_block}
+QUESTION: "{question}"
 
-OUTPUT ONLY valid JSON matching the schema. No explanation, no markdown fences.
-""".strip()
+TASK: For each ambiguous term/phrase in the question:
+1. What does it mean in this business context?
+2. Which column and value in the schema represents it?
+3. Write the exact SQL WHERE fragment.
 
-    # ─────────────────────────────────────────────
-    # SYNTHESIS
-    # ─────────────────────────────────────────────
+Examples of what to resolve:
+- A booking platform name → the matching value in a category column
+- A guest type ("VIP", "loyal") → a column = 'value' condition
+- A time phrase ("last 90 days", "this year") → a date range condition
+- A business phrase ("high season", "long stay") → a column IN (...) condition
 
-    def build_synthesis_prompt(
-        self, question: str, data_preview: str, row_count: int, executed_sql: str, ontology_context: str = ""
-    ) -> str:
-        preview = self._trim(data_preview, 3000)
-        return f"""
-You are a senior business analyst answering a manager's question.
-ANSWER RULES:
-  1. Lead with the key number.
-  2. Use business language.
-  3. Never mention SQL, databases, queries.
-  4. Length: 2–4 sentences maximum.
+Use ONLY columns and values visible in the schema above.
+Set needs_clarification = true if genuinely unmappable.
+Set needs_resolution = false if the question has no ambiguous terms.
 
-METRIC CONTEXT:
-{ontology_context}
-
-USER QUESTION: {question}
-DATA:
-{preview}
-
-Write your business analyst answer:
+Respond using the submit_term_resolution tool.
 """.strip()
 
     # ─────────────────────────────────────────────
     # GENERAL ANSWER
     # ─────────────────────────────────────────────
 
-    def build_general_answer_prompt(self, user_question: str, memory_context: str = "") -> str:
-        context_block = self._trim(memory_context, 1000) or "(none)"
-        return f"""
-You are a helpful business assistant. Answer the user's question conversationally and accurately.
-You do NOT have access to the database for this answer — use your general knowledge.
+    def build_general_answer_prompt(
+        self, user_question: str, memory_context: str = ""
+    ) -> str:
+        context_block = self._trim(memory_context, 800) or "(none)"
+        return f"""You are a helpful business assistant. Answer conversationally and accurately.
+You do NOT have access to the database for this answer — use general knowledge.
 
-CONVERSATION CONTEXT:
-{context_block}
+CONTEXT: {context_block}
+QUESTION: {user_question}
 
-USER QUESTION: {user_question}
+Rules: 2–4 sentences. No SQL, no technical jargon. If uncertain, say so.
 
-RULES:
-- Be concise (2–4 sentences).
-- If the question is about a business term (e.g., "what is ADR?"), explain it clearly.
-- Do not mention SQL, databases, or internal systems.
-- If you genuinely don't know, say so honestly.
-
-Answer:
-""".strip()
+Answer:""".strip()
