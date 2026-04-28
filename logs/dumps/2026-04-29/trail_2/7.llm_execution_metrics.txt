@@ -1,0 +1,4 @@
+[2026-04-29 00:39:23 IST] Model: Qwen/Qwen2.5-7B-Instruct | Max Window: 8000 | Tokens Used: 1009
+[2026-04-29 00:41:54 IST] Model: Qwen/Qwen2.5-7B-Instruct | Max Window: 8000 | Tokens Used: 1007
+[2026-04-29 00:45:22 IST] Model: Qwen/Qwen2.5-7B-Instruct | Max Window: 8000 | Tokens Used: 1016
+[2026-04-29 00:50:17 IST] Model: Qwen/Qwen2.5-7B-Instruct | Max Window: 8000 | Tokens Used: 0

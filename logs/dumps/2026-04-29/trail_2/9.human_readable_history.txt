@@ -1,0 +1,365 @@
+################################################################################
+SERVER SESSION STARTED AT: 2026-04-29 00:39:23 IST
+TRIAL RUN: 2
+################################################################################
+
+================================================================================
+EXECUTION TIMESTAMP: 2026-04-29 00:39:23 IST
+LLM DETAILS: Qwen/Qwen2.5-7B-Instruct (Used ~1009/8000 tokens)
+--------------------------------------------------------------------------------
+USER QUERY:
+How many bookings with 'Room_Type 1' and a 'Not Selected' meal plan were made by repeated guests?
+--------------------------------------------------------------------------------
+GENERATED SQL (Success (1 rows across 1 queries)):
+SELECT COUNT(*) FROM hotel_reservations WHERE room_type_reserved = 'Room_Type 1' AND type_of_meal_plan = 'Not Selected' AND repeated_guest = 1 LIMIT 11;
+--------------------------------------------------------------------------------
+AI RESPONSE:
+The number of bookings with 'Room_Type 1' and a 'Not Selected' meal plan made by repeated guests is 30.
+--------------------------------------------------------------------------------
+ISOLATED RAG RULES INJECTED:
+CRITICAL BUSINESS RULES:
+CRITICAL: When user says "booking number", "number of bookings", "how many bookings", "count of bookings" — they want COUNT(*), NOT the Booking_ID column value.
+
+OPTIONAL: Bookings with special requests = WHERE no_of_special_requests > 0. Bookings with parking = WHERE required_car_parking_space = 1. Bookings without either = WHERE no_of_special_requests = 0.
+
+CRITICAL: Unique guest count = COUNT(DISTINCT guest_name or equivalent). Total booking count = COUNT(*). Never confuse unique guests with total bookings.
+
+CRITICAL: Default behavior = show only Not_Canceled bookings (WHERE booking_status = 'Not_Canceled'). EXCEPTION: Do NOT add this filter when user asks for: total count, all bookings, every booking, including cancelled, exact count, or uses COUNT/SUM/AVG without explicitly mentioning a status.
+
+OPTIONAL: When user asks for a metric "by [dimension]" (e.g., revenue by room type, bookings by month), use GROUP BY that dimension. Preserve the same formula inside each group. Do not add extra grouping columns beyond what was requested.
+--------------------------------------------------------------------------------
+FULL PROMPT SENT TO LLM:
+You are an expert SQL analyst. Convert the user's question into ONE correct SQL query.
+
+━━━ DATABASE SCHEMA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(The [Values] list for each column shows what data exists — use this to map
+ user phrases to the correct column values. Do NOT guess column names.)
+Database: hotel_ai
+Dialect: MYSQL
+
+SCHEMA  (column [Values] and [Range] show actual data — use them to map user terms to the correct column values):
+
+Table: `hotel_reservations`
+  - Booking_ID (text)
+  - no_of_adults (bigint) [Range: 0 → 4, Avg: 1.84]
+  - no_of_children (bigint) [Range: 0 → 10, Avg: 0.11]
+  - no_of_weekend_nights (bigint) [Range: 0 → 7, Avg: 0.81]
+  - no_of_week_nights (bigint) [Range: 0 → 17, Avg: 2.20]
+  - type_of_meal_plan (text) [Values: 'Meal Plan 1', 'Meal Plan 2', 'Meal Plan 3', 'Not Selected']
+  - required_car_parking_space (bigint) [Range: 0 → 1, Avg: 0.03]
+  - room_type_reserved (text) [Values: 'Room_Type 1', 'Room_Type 2', 'Room_Type 3', 'Room_Type 4', 'Room_Type 5', 'Room_Type 6', 'Room_Type 7']
+  - lead_time (bigint) [Range: 0 → 443, Avg: 85.23]
+  - arrival_year (bigint) [Range: 2017 → 2018, Avg: 2017.82]
+  - arrival_month (bigint) [Range: 1 → 12, Avg: 7.42]
+  - arrival_date (bigint) [Range: 1 → 31, Avg: 15.60]
+  - market_segment_type (text) [Values: 'Aviation', 'Complementary', 'Corporate', 'Offline', 'Online']
+  - repeated_guest (bigint) [Range: 0 → 1, Avg: 0.03]
+  - no_of_previous_cancellations (bigint) [Range: 0 → 13, Avg: 0.02]
+  - no_of_previous_bookings_not_canceled (bigint) [Range: 0 → 58, Avg: 0.15]
+  - avg_price_per_room (double) [Range: 0.0 → 540.0, Avg: 103.42]
+  - no_of_special_requests (bigint) [Range: 0 → 5, Avg: 0.62]
+  - booking_status (text) [Values: 'Canceled', 'Not_Canceled']
+
+━━━ CONVERSATION CONTEXT (resolve follow-up references) ━━━━━━━━━━━━━━━━━
+CRITICAL BUSINESS RULES:
+CRITICAL: When user says "booking number", "number of bookings", "how many bookings", "count of bookings" — they want COUNT(*), NOT the Booking_ID column value.
+
+OPTIONAL: Bookings with special requests = WHERE no_of_special_requests > 0. Bookings with parking = WHERE required_car_parking_space = 1. Bookings without either = WHERE no_of_special_requests = 0.
+
+CRITICAL: Unique guest count = COUNT(DISTINCT guest_name or equivalent). Total booking count = COUNT(*). Never confuse unique guests with total bookings.
+
+CRITICAL: Default behavior = show only Not_Canceled bookings (WHERE booking_status = 'Not_Canceled'). EXCEPTION: Do NOT add this filter when user asks for: total count, all bookings, every booking, including cancelled, exact count, or uses COUNT/SUM/AVG without explicitly mentioning a status.
+
+OPTIONAL: When user asks for a metric "by [dimension]" (e.g., revenue by room type, bookings by month), use GROUP BY that dimension. Preserve the same formula inside each group. Do not add extra grouping columns beyond what was requested.
+
+━━━ BUSINESS RULES (backup enrichment — apply only when directly relevant) ━
+(none — answer using schema alone)
+
+━━━ SQL RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Use ONLY columns and tables from the schema above.
+2. Map user terms → column values using the [Values] hints:
+     e.g. if user says "platform X" and [Values] shows 'Online', use 'Online'.
+3. One SELECT or WITH…SELECT statement only.
+4. Aggregate queries (COUNT/SUM/AVG/MIN/MAX without GROUP BY on full table): no LIMIT.
+   Row-returning queries: LIMIT 10.
+5. Protect every division: NULLIF(denominator, 0).
+6. Percentage: (part / NULLIF(whole, 0)) * 100.
+7. If question CANNOT be answered from this schema: output exactly INSUFFICIENT_CONTEXT.
+8. Output ONLY the SQL — no explanation, no markdown fences, no comments.
+
+━━━ QUESTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+How many bookings with 'Room_Type 1' and a 'Not Selected' meal plan were made by repeated guests?
+
+SQL:
+================================================================================
+
+================================================================================
+EXECUTION TIMESTAMP: 2026-04-29 00:41:54 IST
+LLM DETAILS: Qwen/Qwen2.5-7B-Instruct (Used ~1007/8000 tokens)
+--------------------------------------------------------------------------------
+USER QUERY:
+What was the most common arrival_date (day of the month) for bookings made specifically in July 2018?
+--------------------------------------------------------------------------------
+GENERATED SQL (Success (10 rows across 1 queries)):
+SELECT arrival_date FROM hotel_reservations WHERE arrival_month = 7 AND arrival_year = 2018 GROUP BY arrival_date ORDER BY COUNT(*) DESC LIMIT 10;
+--------------------------------------------------------------------------------
+AI RESPONSE:
+The most common arrival date in July 2018 for hotel bookings was the 6th, followed by the 21st and other less frequent dates including the 30th, 23rd, and 11th.
+--------------------------------------------------------------------------------
+ISOLATED RAG RULES INJECTED:
+CRITICAL BUSINESS RULES:
+CRITICAL: Date filtering uses separate columns: arrival_year (int), arrival_month (int 1-12), arrival_date (int day). There is no single date column. To filter by year: WHERE arrival_year = 2018. By month: WHERE arrival_month = 3 AND arrival_year = 2018.
+
+CRITICAL: When user says "booking number", "number of bookings", "how many bookings", "count of bookings" — they want COUNT(*), NOT the Booking_ID column value.
+
+OPTIONAL: When user asks for a metric "by [dimension]" (e.g., revenue by room type, bookings by month), use GROUP BY that dimension. Preserve the same formula inside each group. Do not add extra grouping columns beyond what was requested.
+
+CRITICAL: Cancellation rate = (COUNT(*) WHERE booking_status = 'Canceled' / NULLIF(COUNT(*) total, 0)) * 100. Denominator must be TOTAL bookings in the same filter scope. Use NULLIF for zero-safety. Never divide by active bookings only.
+
+OPTIONAL: Lead time = days between booking and arrival. Use the lead_time column directly. Average lead time = AVG(lead_time). Unit = days.
+--------------------------------------------------------------------------------
+FULL PROMPT SENT TO LLM:
+You are an expert SQL analyst. Convert the user's question into ONE correct SQL query.
+
+━━━ DATABASE SCHEMA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(The [Values] list for each column shows what data exists — use this to map
+ user phrases to the correct column values. Do NOT guess column names.)
+Database: hotel_ai
+Dialect: MYSQL
+
+SCHEMA  (column [Values] and [Range] show actual data — use them to map user terms to the correct column values):
+
+Table: `hotel_reservations`
+  - Booking_ID (text)
+  - no_of_adults (bigint) [Range: 0 → 4, Avg: 1.84]
+  - no_of_children (bigint) [Range: 0 → 10, Avg: 0.11]
+  - no_of_weekend_nights (bigint) [Range: 0 → 7, Avg: 0.81]
+  - no_of_week_nights (bigint) [Range: 0 → 17, Avg: 2.20]
+  - type_of_meal_plan (text) [Values: 'Meal Plan 1', 'Meal Plan 2', 'Meal Plan 3', 'Not Selected']
+  - required_car_parking_space (bigint) [Range: 0 → 1, Avg: 0.03]
+  - room_type_reserved (text) [Values: 'Room_Type 1', 'Room_Type 2', 'Room_Type 3', 'Room_Type 4', 'Room_Type 5', 'Room_Type 6', 'Room_Type 7']
+  - lead_time (bigint) [Range: 0 → 443, Avg: 85.23]
+  - arrival_year (bigint) [Range: 2017 → 2018, Avg: 2017.82]
+  - arrival_month (bigint) [Range: 1 → 12, Avg: 7.42]
+  - arrival_date (bigint) [Range: 1 → 31, Avg: 15.60]
+  - market_segment_type (text) [Values: 'Aviation', 'Complementary', 'Corporate', 'Offline', 'Online']
+  - repeated_guest (bigint) [Range: 0 → 1, Avg: 0.03]
+  - no_of_previous_cancellations (bigint) [Range: 0 → 13, Avg: 0.02]
+  - no_of_previous_bookings_not_canceled (bigint) [Range: 0 → 58, Avg: 0.15]
+  - avg_price_per_room (double) [Range: 0.0 → 540.0, Avg: 103.42]
+  - no_of_special_requests (bigint) [Range: 0 → 5, Avg: 0.62]
+  - booking_status (text) [Values: 'Canceled', 'Not_Canceled']
+
+━━━ CONVERSATION CONTEXT (resolve follow-up references) ━━━━━━━━━━━━━━━━━
+CRITICAL BUSINESS RULES:
+CRITICAL: Date filtering uses separate columns: arrival_year (int), arrival_month (int 1-12), arrival_date (int day). There is no single date column. To filter by year: WHERE arrival_year = 2018. By month: WHERE arrival_month = 3 AND arrival_year = 2018.
+
+CRITICAL: When user says "booking number", "number of bookings", "how many bookings", "count of bookings" — they want COUNT(*), NOT the Booking_ID column value.
+
+OPTIONAL: When user asks for a metric "by [dimension]" (e.g., revenue by room type, bookings by month), use GROUP BY that dimension. Preserve the same formula inside each group. Do not add extra grouping columns beyond what was requested.
+
+CRITICAL: Cancellation rate = (COUNT(*) WHERE booking_status = 'Canceled' / NULLIF(COUNT(*) total, 0)) * 100. Denominator must be TOTAL bookings in the same filter scope. Use NULLIF for zero-safety. Never divide by active bookings only.
+
+OPTIONAL: Lead time = days between booking and arrival. Use the lead_time column directly. Average lead time = AVG(lead_time). Unit = days.
+
+━━━ BUSINESS RULES (backup enrichment — apply only when directly relevant) ━
+(none — answer using schema alone)
+
+━━━ SQL RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Use ONLY columns and tables from the schema above.
+2. Map user terms → column values using the [Values] hints:
+     e.g. if user says "platform X" and [Values] shows 'Online', use 'Online'.
+3. One SELECT or WITH…SELECT statement only.
+4. Aggregate queries (COUNT/SUM/AVG/MIN/MAX without GROUP BY on full table): no LIMIT.
+   Row-returning queries: LIMIT 10.
+5. Protect every division: NULLIF(denominator, 0).
+6. Percentage: (part / NULLIF(whole, 0)) * 100.
+7. If question CANNOT be answered from this schema: output exactly INSUFFICIENT_CONTEXT.
+8. Output ONLY the SQL — no explanation, no markdown fences, no comments.
+
+━━━ QUESTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+What was the most common arrival_date (day of the month) for bookings made specifically in July 2018?
+
+SQL:
+================================================================================
+
+================================================================================
+EXECUTION TIMESTAMP: 2026-04-29 00:45:22 IST
+LLM DETAILS: Qwen/Qwen2.5-7B-Instruct (Used ~1016/8000 tokens)
+--------------------------------------------------------------------------------
+USER QUERY:
+Which arrival year and month combination saw the most bookings with 3 or more special requests? (Format: YYYY-MM)
+--------------------------------------------------------------------------------
+GENERATED SQL (Success (10 rows across 1 queries)):
+SELECT arrival_year, arrival_month FROM hotel_reservations WHERE no_of_special_requests >= 3 GROUP BY arrival_year, arrival_month ORDER BY COUNT(*) DESC LIMIT 10;
+--------------------------------------------------------------------------------
+AI RESPONSE:
+The data does not provide the number of bookings with 3 or more special requests for each month, so the most bookings cannot be determined.
+--------------------------------------------------------------------------------
+ISOLATED RAG RULES INJECTED:
+CRITICAL BUSINESS RULES:
+OPTIONAL: Bookings with special requests = WHERE no_of_special_requests > 0. Bookings with parking = WHERE required_car_parking_space = 1. Bookings without either = WHERE no_of_special_requests = 0.
+
+CRITICAL: Date filtering uses separate columns: arrival_year (int), arrival_month (int 1-12), arrival_date (int day). There is no single date column. To filter by year: WHERE arrival_year = 2018. By month: WHERE arrival_month = 3 AND arrival_year = 2018.
+
+CRITICAL: Unique guest count = COUNT(DISTINCT guest_name or equivalent). Total booking count = COUNT(*). Never confuse unique guests with total bookings.
+
+OPTIONAL: Lead time = days between booking and arrival. Use the lead_time column directly. Average lead time = AVG(lead_time). Unit = days.
+
+CRITICAL: Default behavior = show only Not_Canceled bookings (WHERE booking_status = 'Not_Canceled'). EXCEPTION: Do NOT add this filter when user asks for: total count, all bookings, every booking, including cancelled, exact count, or uses COUNT/SUM/AVG without explicitly mentioning a status.
+--------------------------------------------------------------------------------
+FULL PROMPT SENT TO LLM:
+You are an expert SQL analyst. Convert the user's question into ONE correct SQL query.
+
+━━━ DATABASE SCHEMA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(The [Values] list for each column shows what data exists — use this to map
+ user phrases to the correct column values. Do NOT guess column names.)
+Database: hotel_ai
+Dialect: MYSQL
+
+SCHEMA  (column [Values] and [Range] show actual data — use them to map user terms to the correct column values):
+
+Table: `hotel_reservations`
+  - Booking_ID (text)
+  - no_of_adults (bigint) [Range: 0 → 4, Avg: 1.84]
+  - no_of_children (bigint) [Range: 0 → 10, Avg: 0.11]
+  - no_of_weekend_nights (bigint) [Range: 0 → 7, Avg: 0.81]
+  - no_of_week_nights (bigint) [Range: 0 → 17, Avg: 2.20]
+  - type_of_meal_plan (text) [Values: 'Meal Plan 1', 'Meal Plan 2', 'Meal Plan 3', 'Not Selected']
+  - required_car_parking_space (bigint) [Range: 0 → 1, Avg: 0.03]
+  - room_type_reserved (text) [Values: 'Room_Type 1', 'Room_Type 2', 'Room_Type 3', 'Room_Type 4', 'Room_Type 5', 'Room_Type 6', 'Room_Type 7']
+  - lead_time (bigint) [Range: 0 → 443, Avg: 85.23]
+  - arrival_year (bigint) [Range: 2017 → 2018, Avg: 2017.82]
+  - arrival_month (bigint) [Range: 1 → 12, Avg: 7.42]
+  - arrival_date (bigint) [Range: 1 → 31, Avg: 15.60]
+  - market_segment_type (text) [Values: 'Aviation', 'Complementary', 'Corporate', 'Offline', 'Online']
+  - repeated_guest (bigint) [Range: 0 → 1, Avg: 0.03]
+  - no_of_previous_cancellations (bigint) [Range: 0 → 13, Avg: 0.02]
+  - no_of_previous_bookings_not_canceled (bigint) [Range: 0 → 58, Avg: 0.15]
+  - avg_price_per_room (double) [Range: 0.0 → 540.0, Avg: 103.42]
+  - no_of_special_requests (bigint) [Range: 0 → 5, Avg: 0.62]
+  - booking_status (text) [Values: 'Canceled', 'Not_Canceled']
+
+━━━ CONVERSATION CONTEXT (resolve follow-up references) ━━━━━━━━━━━━━━━━━
+CRITICAL BUSINESS RULES:
+OPTIONAL: Bookings with special requests = WHERE no_of_special_requests > 0. Bookings with parking = WHERE required_car_parking_space = 1. Bookings without either = WHERE no_of_special_requests = 0.
+
+CRITICAL: Date filtering uses separate columns: arrival_year (int), arrival_month (int 1-12), arrival_date (int day). There is no single date column. To filter by year: WHERE arrival_year = 2018. By month: WHERE arrival_month = 3 AND arrival_year = 2018.
+
+CRITICAL: Unique guest count = COUNT(DISTINCT guest_name or equivalent). Total booking count = COUNT(*). Never confuse unique guests with total bookings.
+
+OPTIONAL: Lead time = days between booking and arrival. Use the lead_time column directly. Average lead time = AVG(lead_time). Unit = days.
+
+CRITICAL: Default behavior = show only Not_Canceled bookings (WHERE booking_status = 'Not_Canceled'). EXCEPTION: Do NOT add this filter when user asks for: total count, all bookings, every booking, including cancelled, exact count, or uses COUNT/SUM/AVG without explicitly mentioning a status.
+
+━━━ BUSINESS RULES (backup enrichment — apply only when directly relevant) ━
+(none — answer using schema alone)
+
+━━━ SQL RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Use ONLY columns and tables from the schema above.
+2. Map user terms → column values using the [Values] hints:
+     e.g. if user says "platform X" and [Values] shows 'Online', use 'Online'.
+3. One SELECT or WITH…SELECT statement only.
+4. Aggregate queries (COUNT/SUM/AVG/MIN/MAX without GROUP BY on full table): no LIMIT.
+   Row-returning queries: LIMIT 10.
+5. Protect every division: NULLIF(denominator, 0).
+6. Percentage: (part / NULLIF(whole, 0)) * 100.
+7. If question CANNOT be answered from this schema: output exactly INSUFFICIENT_CONTEXT.
+8. Output ONLY the SQL — no explanation, no markdown fences, no comments.
+
+━━━ QUESTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Which arrival year and month combination saw the most bookings with 3 or more special requests? (Format: YYYY-MM)
+
+SQL:
+================================================================================
+
+================================================================================
+EXECUTION TIMESTAMP: 2026-04-29 00:50:17 IST
+LLM DETAILS: Qwen/Qwen2.5-7B-Instruct (Used ~0/8000 tokens)
+--------------------------------------------------------------------------------
+USER QUERY:
+Which arrival year and month combination saw the most bookings with 3 or more special requests? (Format: YYYY-MM)
+--------------------------------------------------------------------------------
+GENERATED SQL (Success (10 rows across 1 queries)):
+SELECT arrival_year, arrival_month FROM hotel_reservations WHERE no_of_special_requests >= 3 GROUP BY arrival_year, arrival_month ORDER BY COUNT(*) DESC LIMIT 10;
+--------------------------------------------------------------------------------
+AI RESPONSE:
+The data does not provide the number of bookings with 3 or more special requests for each month, so the most bookings cannot be determined.
+--------------------------------------------------------------------------------
+ISOLATED RAG RULES INJECTED:
+CRITICAL BUSINESS RULES:
+CRITICAL: Never confuse revenue with profit. Revenue = total money earned. Profit = revenue minus cost. If cost field is not in schema, do not calculate profit — return INSUFFICIENT_CONTEXT.
+
+CRITICAL: Revenue = SUM(avg_price_per_room * (no_of_weekend_nights + no_of_week_nights)). Use this formula whenever user asks for: revenue, income, earnings, booking revenue, sales revenue, total revenue, overall revenue, turnover.
+
+OPTIONAL: Lead time = days between booking and arrival. Use the lead_time column directly. Average lead time = AVG(lead_time). Unit = days.
+
+CRITICAL: All percentage and rate calculations must use NULLIF(denominator, 0) for zero-safety. Example: (part / NULLIF(whole, 0)) * 100. Never produce unsafe division.
+
+CRITICAL: Average price per booking = AVG(avg_price_per_room). Average booking value = SUM(avg_price_per_room * total_nights) / COUNT(*). Never confuse these two.
+--------------------------------------------------------------------------------
+FULL PROMPT SENT TO LLM:
+You are an expert SQL analyst. Convert the user's question into ONE correct SQL query.
+
+━━━ DATABASE SCHEMA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(The [Values] list for each column shows what data exists — use this to map
+ user phrases to the correct column values. Do NOT guess column names.)
+Database: hotel_ai
+Dialect: MYSQL
+
+SCHEMA  (column [Values] and [Range] show actual data — use them to map user terms to the correct column values):
+
+Table: `hotel_reservations`
+  - Booking_ID (text)
+  - no_of_adults (bigint) [Range: 0 → 4, Avg: 1.84]
+  - no_of_children (bigint) [Range: 0 → 10, Avg: 0.11]
+  - no_of_weekend_nights (bigint) [Range: 0 → 7, Avg: 0.81]
+  - no_of_week_nights (bigint) [Range: 0 → 17, Avg: 2.20]
+  - type_of_meal_plan (text) [Values: 'Meal Plan 1', 'Meal Plan 2', 'Meal Plan 3', 'Not Selected']
+  - required_car_parking_space (bigint) [Range: 0 → 1, Avg: 0.03]
+  - room_type_reserved (text) [Values: 'Room_Type 1', 'Room_Type 2', 'Room_Type 3', 'Room_Type 4', 'Room_Type 5', 'Room_Type 6', 'Room_Type 7']
+  - lead_time (bigint) [Range: 0 → 443, Avg: 85.23]
+  - arrival_year (bigint) [Range: 2017 → 2018, Avg: 2017.82]
+  - arrival_month (bigint) [Range: 1 → 12, Avg: 7.42]
+  - arrival_date (bigint) [Range: 1 → 31, Avg: 15.60]
+  - market_segment_type (text) [Values: 'Aviation', 'Complementary', 'Corporate', 'Offline', 'Online']
+  - repeated_guest (bigint) [Range: 0 → 1, Avg: 0.03]
+  - no_of_previous_cancellations (bigint) [Range: 0 → 13, Avg: 0.02]
+  - no_of_previous_bookings_not_canceled (bigint) [Range: 0 → 58, Avg: 0.15]
+  - avg_price_per_room (double) [Range: 0.0 → 540.0, Avg: 103.42]
+  - no_of_special_requests (bigint) [Range: 0 → 5, Avg: 0.62]
+  - booking_status (text) [Values: 'Canceled', 'Not_Canceled']
+
+━━━ CONVERSATION CONTEXT (resolve follow-up references) ━━━━━━━━━━━━━━━━━
+CRITICAL BUSINESS RULES:
+CRITICAL: Never confuse revenue with profit. Revenue = total money earned. Profit = revenue minus cost. If cost field is not in schema, do not calculate profit — return INSUFFICIENT_CONTEXT.
+
+CRITICAL: Revenue = SUM(avg_price_per_room * (no_of_weekend_nights + no_of_week_nights)). Use this formula whenever user asks for: revenue, income, earnings, booking revenue, sales revenue, total revenue, overall revenue, turnover.
+
+OPTIONAL: Lead time = days between booking and arrival. Use the lead_time column directly. Average lead time = AVG(lead_time). Unit = days.
+
+CRITICAL: All percentage and rate calculations must use NULLIF(denominator, 0) for zero-safety. Example: (part / NULLIF(whole, 0)) * 100. Never produce unsafe division.
+
+CRITICAL: Average price per booking = AVG(avg_price_per_room). Average booking value = SUM(avg_price_per_room * total_nights) / COUNT(*). Never confuse these two.
+
+━━━ BUSINESS RULES (backup enrichment — apply only when directly relevant) ━
+(none — answer using schema alone)
+
+━━━ SQL RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Use ONLY columns and tables from the schema above.
+2. Map user terms → column values using the [Values] hints:
+     e.g. if user says "platform X" and [Values] shows 'Online', use 'Online'.
+3. One SELECT or WITH…SELECT statement only.
+4. Aggregate queries (COUNT/SUM/AVG/MIN/MAX without GROUP BY on full table): no LIMIT.
+   Row-returning queries: LIMIT 10.
+5. Protect every division: NULLIF(denominator, 0).
+6. Percentage: (part / NULLIF(whole, 0)) * 100.
+7. If question CANNOT be answered from this schema: output exactly INSUFFICIENT_CONTEXT.
+8. Output ONLY the SQL — no explanation, no markdown fences, no comments.
+
+━━━ QUESTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Which arrival year and month combination saw the most bookings with 3 or more special requests? (Format: YYYY-MM)
+
+SQL:
+================================================================================
+

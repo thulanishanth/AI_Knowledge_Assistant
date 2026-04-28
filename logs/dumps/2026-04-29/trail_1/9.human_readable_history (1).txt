@@ -1,0 +1,287 @@
+################################################################################
+SERVER SESSION STARTED AT: 2026-04-29 00:27:03 IST
+TRIAL RUN: 1
+################################################################################
+
+================================================================================
+EXECUTION TIMESTAMP: 2026-04-29 00:27:03 IST
+LLM DETAILS: Qwen/Qwen2.5-7B-Instruct (Used ~1051/8000 tokens)
+--------------------------------------------------------------------------------
+USER QUERY:
+How many bookings have more weekend nights than week nights?
+--------------------------------------------------------------------------------
+GENERATED SQL (Success (1 rows across 1 queries)):
+SELECT COUNT(*) FROM hotel_reservations WHERE no_of_weekend_nights > no_of_week_nights LIMIT 11;
+--------------------------------------------------------------------------------
+AI RESPONSE:
+There are 4,775 bookings that have more weekend nights than week nights.
+--------------------------------------------------------------------------------
+ISOLATED RAG RULES INJECTED:
+TERM MAPPINGS (use these exact SQL conditions):
+  "weekend nights" → The number of weekend nights in a booking.
+    SQL condition: (no_of_weekend_nights > no_of_week_nights)
+  "week nights" → The number of week nights in a booking.
+    SQL condition: (no_of_weekend_nights < no_of_week_nights)
+
+CRITICAL BUSINESS RULES:
+OPTIONAL: Total stay duration / total nights = (no_of_weekend_nights + no_of_week_nights). Use when user asks for: total stay, duration, nights, length of stay. Average stay = AVG(no_of_weekend_nights + no_of_week_nights).
+
+CRITICAL: Revenue = SUM(avg_price_per_room * (no_of_weekend_nights + no_of_week_nights)). Use this formula whenever user asks for: revenue, income, earnings, booking revenue, sales revenue, total revenue, overall revenue, turnover.
+
+CRITICAL: When user says "booking number", "number of bookings", "how many bookings", "count of bookings" — they want COUNT(*), NOT the Booking_ID column value.
+
+OPTIONAL: Bookings with special requests = WHERE no_of_special_requests > 0. Bookings with parking = WHERE required_car_parking_space = 1. Bookings without either = WHERE no_of_special_requests = 0.
+
+OPTIONAL: Cancelled bookings = WHERE booking_status = 'Canceled'. Not-canceled bookings = WHERE booking_status = 'Not_Canceled'. These are the only two valid status values in this dataset.
+--------------------------------------------------------------------------------
+FULL PROMPT SENT TO LLM:
+You are an expert SQL analyst. Convert the user's question into ONE correct SQL query.
+
+━━━ DATABASE SCHEMA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(The [Values] list for each column shows what data exists — use this to map
+ user phrases to the correct column values. Do NOT guess column names.)
+Database: hotel_ai
+Dialect: MYSQL
+
+SCHEMA  (column [Values] and [Range] show actual data — use them to map user terms to the correct column values):
+
+Table: `hotel_reservations`
+  - Booking_ID (text)
+  - no_of_adults (bigint) [Range: 0 → 4, Avg: 1.84]
+  - no_of_children (bigint) [Range: 0 → 10, Avg: 0.11]
+  - no_of_weekend_nights (bigint) [Range: 0 → 7, Avg: 0.81]
+  - no_of_week_nights (bigint) [Range: 0 → 17, Avg: 2.20]
+  - type_of_meal_plan (text) [Values: 'Meal Plan 1', 'Meal Plan 2', 'Meal Plan 3', 'Not Selected']
+  - required_car_parking_space (bigint) [Range: 0 → 1, Avg: 0.03]
+  - room_type_reserved (text) [Values: 'Room_Type 1', 'Room_Type 2', 'Room_Type 3', 'Room_Type 4', 'Room_Type 5', 'Room_Type 6', 'Room_Type 7']
+  - lead_time (bigint) [Range: 0 → 443, Avg: 85.23]
+  - arrival_year (bigint) [Range: 2017 → 2018, Avg: 2017.82]
+  - arrival_month (bigint) [Range: 1 → 12, Avg: 7.42]
+  - arrival_date (bigint) [Range: 1 → 31, Avg: 15.60]
+  - market_segment_type (text) [Values: 'Aviation', 'Complementary', 'Corporate', 'Offline', 'Online']
+  - repeated_guest (bigint) [Range: 0 → 1, Avg: 0.03]
+  - no_of_previous_cancellations (bigint) [Range: 0 → 13, Avg: 0.02]
+  - no_of_previous_bookings_not_canceled (bigint) [Range: 0 → 58, Avg: 0.15]
+  - avg_price_per_room (double) [Range: 0.0 → 540.0, Avg: 103.42]
+  - no_of_special_requests (bigint) [Range: 0 → 5, Avg: 0.62]
+  - booking_status (text) [Values: 'Canceled', 'Not_Canceled']
+
+━━━ CONVERSATION CONTEXT (resolve follow-up references) ━━━━━━━━━━━━━━━━━
+TERM MAPPINGS (use these exact SQL conditions):
+  "weekend nights" → The number of weekend nights in a booking.
+    SQL condition: (no_of_weekend_nights > no_of_week_nights)
+  "week nights" → The number of week nights in a booking.
+    SQL condition: (no_of_weekend_nights < no_of_week_nights)
+
+CRITICAL BUSINESS RULES:
+OPTIONAL: Total stay duration / total nights = (no_of_weekend_nights + no_of_week_nights). Use when user asks for: total stay, duration, nights, length of stay. Average stay = AVG(no_of_weekend_nights + no_of_week_nights).
+
+CRITICAL: Revenue = SUM(avg_price_per_room * (no_of_weekend_nights + no_of_week_nights)). Use this formula whenever user asks for: revenue, income, earnings, booking revenue, sales revenue, total revenue, overall revenue, turnover.
+
+CRITICAL: When user says "booking number", "number of bookings", "how many bookings", "count of bookings" — they want COUNT(*), NOT the Booking_ID column value.
+
+OPTIONAL: Bookings with special requests = WHERE no_of_special_requests > 0. Bookings with parking = WHERE required_car_parking_space = 1. Bookings without either = WHERE no_of_special_requests = 0.
+
+OPTIONAL: Cancelled bookings = WHERE booking_status = 'Canceled'. Not-canceled bookings = WHERE booking_status = 'Not_Canceled'. These are the only two valid status values in this dataset.
+
+━━━ BUSINESS RULES (backup enrichment — apply only when directly relevant) ━
+(none — answer using schema alone)
+
+━━━ SQL RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Use ONLY columns and tables from the schema above.
+2. Map user terms → column values using the [Values] hints:
+     e.g. if user says "platform X" and [Values] shows 'Online', use 'Online'.
+3. One SELECT or WITH…SELECT statement only.
+4. Aggregate queries (COUNT/SUM/AVG/MIN/MAX without GROUP BY on full table): no LIMIT.
+   Row-returning queries: LIMIT 10.
+5. Protect every division: NULLIF(denominator, 0).
+6. Percentage: (part / NULLIF(whole, 0)) * 100.
+7. If question CANNOT be answered from this schema: output exactly INSUFFICIENT_CONTEXT.
+8. Output ONLY the SQL — no explanation, no markdown fences, no comments.
+
+━━━ QUESTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+How many bookings have more weekend nights than week nights?
+
+SQL:
+================================================================================
+
+================================================================================
+EXECUTION TIMESTAMP: 2026-04-29 00:29:16 IST
+LLM DETAILS: Qwen/Qwen2.5-7B-Instruct (Used ~1036/8000 tokens)
+--------------------------------------------------------------------------------
+USER QUERY:
+How many bookings have more weekend nights than week nights, excluding those with 0 weekend nights?
+--------------------------------------------------------------------------------
+GENERATED SQL (Success (1 rows across 1 queries)):
+SELECT COUNT(*) FROM hotel_reservations WHERE no_of_weekend_nights > no_of_week_nights AND no_of_weekend_nights > 0 AND booking_status = 'Not_Canceled' LIMIT 11;
+--------------------------------------------------------------------------------
+AI RESPONSE:
+There are 3,253 bookings that have more weekend nights than week nights, excluding those with zero weekend nights.
+--------------------------------------------------------------------------------
+ISOLATED RAG RULES INJECTED:
+CRITICAL BUSINESS RULES:
+OPTIONAL: Cancelled bookings = WHERE booking_status = 'Canceled'. Not-canceled bookings = WHERE booking_status = 'Not_Canceled'. These are the only two valid status values in this dataset.
+
+CRITICAL: Default behavior = show only Not_Canceled bookings (WHERE booking_status = 'Not_Canceled'). EXCEPTION: Do NOT add this filter when user asks for: total count, all bookings, every booking, including cancelled, exact count, or uses COUNT/SUM/AVG without explicitly mentioning a status.
+
+OPTIONAL: Total stay duration / total nights = (no_of_weekend_nights + no_of_week_nights). Use when user asks for: total stay, duration, nights, length of stay. Average stay = AVG(no_of_weekend_nights + no_of_week_nights).
+
+OPTIONAL: Bookings with special requests = WHERE no_of_special_requests > 0. Bookings with parking = WHERE required_car_parking_space = 1. Bookings without either = WHERE no_of_special_requests = 0.
+
+CRITICAL: Cancellation rate = (COUNT(*) WHERE booking_status = 'Canceled' / NULLIF(COUNT(*) total, 0)) * 100. Denominator must be TOTAL bookings in the same filter scope. Use NULLIF for zero-safety. Never divide by active bookings only.
+--------------------------------------------------------------------------------
+FULL PROMPT SENT TO LLM:
+You are an expert SQL analyst. Convert the user's question into ONE correct SQL query.
+
+━━━ DATABASE SCHEMA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(The [Values] list for each column shows what data exists — use this to map
+ user phrases to the correct column values. Do NOT guess column names.)
+Database: hotel_ai
+Dialect: MYSQL
+
+SCHEMA  (column [Values] and [Range] show actual data — use them to map user terms to the correct column values):
+
+Table: `hotel_reservations`
+  - Booking_ID (text)
+  - no_of_adults (bigint) [Range: 0 → 4, Avg: 1.84]
+  - no_of_children (bigint) [Range: 0 → 10, Avg: 0.11]
+  - no_of_weekend_nights (bigint) [Range: 0 → 7, Avg: 0.81]
+  - no_of_week_nights (bigint) [Range: 0 → 17, Avg: 2.20]
+  - type_of_meal_plan (text) [Values: 'Meal Plan 1', 'Meal Plan 2', 'Meal Plan 3', 'Not Selected']
+  - required_car_parking_space (bigint) [Range: 0 → 1, Avg: 0.03]
+  - room_type_reserved (text) [Values: 'Room_Type 1', 'Room_Type 2', 'Room_Type 3', 'Room_Type 4', 'Room_Type 5', 'Room_Type 6', 'Room_Type 7']
+  - lead_time (bigint) [Range: 0 → 443, Avg: 85.23]
+  - arrival_year (bigint) [Range: 2017 → 2018, Avg: 2017.82]
+  - arrival_month (bigint) [Range: 1 → 12, Avg: 7.42]
+  - arrival_date (bigint) [Range: 1 → 31, Avg: 15.60]
+  - market_segment_type (text) [Values: 'Aviation', 'Complementary', 'Corporate', 'Offline', 'Online']
+  - repeated_guest (bigint) [Range: 0 → 1, Avg: 0.03]
+  - no_of_previous_cancellations (bigint) [Range: 0 → 13, Avg: 0.02]
+  - no_of_previous_bookings_not_canceled (bigint) [Range: 0 → 58, Avg: 0.15]
+  - avg_price_per_room (double) [Range: 0.0 → 540.0, Avg: 103.42]
+  - no_of_special_requests (bigint) [Range: 0 → 5, Avg: 0.62]
+  - booking_status (text) [Values: 'Canceled', 'Not_Canceled']
+
+━━━ CONVERSATION CONTEXT (resolve follow-up references) ━━━━━━━━━━━━━━━━━
+CRITICAL BUSINESS RULES:
+OPTIONAL: Cancelled bookings = WHERE booking_status = 'Canceled'. Not-canceled bookings = WHERE booking_status = 'Not_Canceled'. These are the only two valid status values in this dataset.
+
+CRITICAL: Default behavior = show only Not_Canceled bookings (WHERE booking_status = 'Not_Canceled'). EXCEPTION: Do NOT add this filter when user asks for: total count, all bookings, every booking, including cancelled, exact count, or uses COUNT/SUM/AVG without explicitly mentioning a status.
+
+OPTIONAL: Total stay duration / total nights = (no_of_weekend_nights + no_of_week_nights). Use when user asks for: total stay, duration, nights, length of stay. Average stay = AVG(no_of_weekend_nights + no_of_week_nights).
+
+OPTIONAL: Bookings with special requests = WHERE no_of_special_requests > 0. Bookings with parking = WHERE required_car_parking_space = 1. Bookings without either = WHERE no_of_special_requests = 0.
+
+CRITICAL: Cancellation rate = (COUNT(*) WHERE booking_status = 'Canceled' / NULLIF(COUNT(*) total, 0)) * 100. Denominator must be TOTAL bookings in the same filter scope. Use NULLIF for zero-safety. Never divide by active bookings only.
+
+━━━ BUSINESS RULES (backup enrichment — apply only when directly relevant) ━
+(none — answer using schema alone)
+
+━━━ SQL RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Use ONLY columns and tables from the schema above.
+2. Map user terms → column values using the [Values] hints:
+     e.g. if user says "platform X" and [Values] shows 'Online', use 'Online'.
+3. One SELECT or WITH…SELECT statement only.
+4. Aggregate queries (COUNT/SUM/AVG/MIN/MAX without GROUP BY on full table): no LIMIT.
+   Row-returning queries: LIMIT 10.
+5. Protect every division: NULLIF(denominator, 0).
+6. Percentage: (part / NULLIF(whole, 0)) * 100.
+7. If question CANNOT be answered from this schema: output exactly INSUFFICIENT_CONTEXT.
+8. Output ONLY the SQL — no explanation, no markdown fences, no comments.
+
+━━━ QUESTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+How many bookings have more weekend nights than week nights, excluding those with 0 weekend nights?
+
+SQL:
+================================================================================
+
+================================================================================
+EXECUTION TIMESTAMP: 2026-04-29 00:31:15 IST
+LLM DETAILS: Qwen/Qwen2.5-7B-Instruct (Used ~1000/8000 tokens)
+--------------------------------------------------------------------------------
+USER QUERY:
+How many bookings involve exactly 2 adults, exactly 1 child, require a car parking space, and have at least 1 special request?
+--------------------------------------------------------------------------------
+GENERATED SQL (Success (1 rows across 1 queries)):
+SELECT COUNT(*) FROM hotel_reservations WHERE no_of_adults = 2 AND no_of_children = 1 AND required_car_parking_space = 1 AND no_of_special_requests > 0 LIMIT 11;
+--------------------------------------------------------------------------------
+AI RESPONSE:
+The number of bookings is 61.
+--------------------------------------------------------------------------------
+ISOLATED RAG RULES INJECTED:
+CRITICAL BUSINESS RULES:
+OPTIONAL: Bookings with special requests = WHERE no_of_special_requests > 0. Bookings with parking = WHERE required_car_parking_space = 1. Bookings without either = WHERE no_of_special_requests = 0.
+
+CRITICAL: When user says "booking number", "number of bookings", "how many bookings", "count of bookings" — they want COUNT(*), NOT the Booking_ID column value.
+
+CRITICAL: Default behavior = show only Not_Canceled bookings (WHERE booking_status = 'Not_Canceled'). EXCEPTION: Do NOT add this filter when user asks for: total count, all bookings, every booking, including cancelled, exact count, or uses COUNT/SUM/AVG without explicitly mentioning a status.
+
+CRITICAL: Unique guest count = COUNT(DISTINCT guest_name or equivalent). Total booking count = COUNT(*). Never confuse unique guests with total bookings.
+
+CRITICAL: Average price per booking = AVG(avg_price_per_room). Average booking value = SUM(avg_price_per_room * total_nights) / COUNT(*). Never confuse these two.
+--------------------------------------------------------------------------------
+FULL PROMPT SENT TO LLM:
+You are an expert SQL analyst. Convert the user's question into ONE correct SQL query.
+
+━━━ DATABASE SCHEMA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(The [Values] list for each column shows what data exists — use this to map
+ user phrases to the correct column values. Do NOT guess column names.)
+Database: hotel_ai
+Dialect: MYSQL
+
+SCHEMA  (column [Values] and [Range] show actual data — use them to map user terms to the correct column values):
+
+Table: `hotel_reservations`
+  - Booking_ID (text)
+  - no_of_adults (bigint) [Range: 0 → 4, Avg: 1.84]
+  - no_of_children (bigint) [Range: 0 → 10, Avg: 0.11]
+  - no_of_weekend_nights (bigint) [Range: 0 → 7, Avg: 0.81]
+  - no_of_week_nights (bigint) [Range: 0 → 17, Avg: 2.20]
+  - type_of_meal_plan (text) [Values: 'Meal Plan 1', 'Meal Plan 2', 'Meal Plan 3', 'Not Selected']
+  - required_car_parking_space (bigint) [Range: 0 → 1, Avg: 0.03]
+  - room_type_reserved (text) [Values: 'Room_Type 1', 'Room_Type 2', 'Room_Type 3', 'Room_Type 4', 'Room_Type 5', 'Room_Type 6', 'Room_Type 7']
+  - lead_time (bigint) [Range: 0 → 443, Avg: 85.23]
+  - arrival_year (bigint) [Range: 2017 → 2018, Avg: 2017.82]
+  - arrival_month (bigint) [Range: 1 → 12, Avg: 7.42]
+  - arrival_date (bigint) [Range: 1 → 31, Avg: 15.60]
+  - market_segment_type (text) [Values: 'Aviation', 'Complementary', 'Corporate', 'Offline', 'Online']
+  - repeated_guest (bigint) [Range: 0 → 1, Avg: 0.03]
+  - no_of_previous_cancellations (bigint) [Range: 0 → 13, Avg: 0.02]
+  - no_of_previous_bookings_not_canceled (bigint) [Range: 0 → 58, Avg: 0.15]
+  - avg_price_per_room (double) [Range: 0.0 → 540.0, Avg: 103.42]
+  - no_of_special_requests (bigint) [Range: 0 → 5, Avg: 0.62]
+  - booking_status (text) [Values: 'Canceled', 'Not_Canceled']
+
+━━━ CONVERSATION CONTEXT (resolve follow-up references) ━━━━━━━━━━━━━━━━━
+CRITICAL BUSINESS RULES:
+OPTIONAL: Bookings with special requests = WHERE no_of_special_requests > 0. Bookings with parking = WHERE required_car_parking_space = 1. Bookings without either = WHERE no_of_special_requests = 0.
+
+CRITICAL: When user says "booking number", "number of bookings", "how many bookings", "count of bookings" — they want COUNT(*), NOT the Booking_ID column value.
+
+CRITICAL: Default behavior = show only Not_Canceled bookings (WHERE booking_status = 'Not_Canceled'). EXCEPTION: Do NOT add this filter when user asks for: total count, all bookings, every booking, including cancelled, exact count, or uses COUNT/SUM/AVG without explicitly mentioning a status.
+
+CRITICAL: Unique guest count = COUNT(DISTINCT guest_name or equivalent). Total booking count = COUNT(*). Never confuse unique guests with total bookings.
+
+CRITICAL: Average price per booking = AVG(avg_price_per_room). Average booking value = SUM(avg_price_per_room * total_nights) / COUNT(*). Never confuse these two.
+
+━━━ BUSINESS RULES (backup enrichment — apply only when directly relevant) ━
+(none — answer using schema alone)
+
+━━━ SQL RULES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Use ONLY columns and tables from the schema above.
+2. Map user terms → column values using the [Values] hints:
+     e.g. if user says "platform X" and [Values] shows 'Online', use 'Online'.
+3. One SELECT or WITH…SELECT statement only.
+4. Aggregate queries (COUNT/SUM/AVG/MIN/MAX without GROUP BY on full table): no LIMIT.
+   Row-returning queries: LIMIT 10.
+5. Protect every division: NULLIF(denominator, 0).
+6. Percentage: (part / NULLIF(whole, 0)) * 100.
+7. If question CANNOT be answered from this schema: output exactly INSUFFICIENT_CONTEXT.
+8. Output ONLY the SQL — no explanation, no markdown fences, no comments.
+
+━━━ QUESTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+How many bookings involve exactly 2 adults, exactly 1 child, require a car parking space, and have at least 1 special request?
+
+SQL:
+================================================================================
+

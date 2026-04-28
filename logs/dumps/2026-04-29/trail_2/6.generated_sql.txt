@@ -1,0 +1,4 @@
+SELECT COUNT(*) FROM hotel_reservations WHERE room_type_reserved = 'Room_Type 1' AND type_of_meal_plan = 'Not Selected' AND repeated_guest = 1 LIMIT 11;
+SELECT arrival_date FROM hotel_reservations WHERE arrival_month = 7 AND arrival_year = 2018 GROUP BY arrival_date ORDER BY COUNT(*) DESC LIMIT 10;
+SELECT arrival_year, arrival_month FROM hotel_reservations WHERE no_of_special_requests >= 3 GROUP BY arrival_year, arrival_month ORDER BY COUNT(*) DESC LIMIT 10;
+SELECT arrival_year, arrival_month FROM hotel_reservations WHERE no_of_special_requests >= 3 GROUP BY arrival_year, arrival_month ORDER BY COUNT(*) DESC LIMIT 10;

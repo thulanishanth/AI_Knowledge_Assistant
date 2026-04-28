@@ -1,0 +1,3 @@
+How many bookings have more weekend nights than week nights?
+How many bookings have more weekend nights than week nights, excluding those with 0 weekend nights?
+How many bookings involve exactly 2 adults, exactly 1 child, require a car parking space, and have at least 1 special request?

@@ -1,0 +1,4 @@
+The number of bookings with 'Room_Type 1' and a 'Not Selected' meal plan made by repeated guests is 30.
+The most common arrival date in July 2018 for hotel bookings was the 6th, followed by the 21st and other less frequent dates including the 30th, 23rd, and 11th.
+The data does not provide the number of bookings with 3 or more special requests for each month, so the most bookings cannot be determined.
+The data does not provide the number of bookings with 3 or more special requests for each month, so the most bookings cannot be determined.

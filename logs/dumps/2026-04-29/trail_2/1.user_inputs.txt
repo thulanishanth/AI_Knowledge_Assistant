@@ -1,0 +1,4 @@
+How many bookings with 'Room_Type 1' and a 'Not Selected' meal plan were made by repeated guests?
+What was the most common arrival_date (day of the month) for bookings made specifically in July 2018?
+Which arrival year and month combination saw the most bookings with 3 or more special requests? (Format: YYYY-MM)
+Which arrival year and month combination saw the most bookings with 3 or more special requests? (Format: YYYY-MM)
