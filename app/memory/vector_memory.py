@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.core.settings import settings

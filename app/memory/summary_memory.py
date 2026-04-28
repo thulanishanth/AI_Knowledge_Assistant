@@ -47,9 +47,16 @@ class SummaryMemory:
 
         # Enforce memory boundary: drop the oldest inactive session
         if len(self._summaries) > self._max_sessions:
-            evicted = self._summaries.popitem(last=False)
-            logger.debug("Evicted oldest summary memory to stay under limit.")
-
+            # Capture the key (user_id, session_id) and ignore the summary text with '_'
+            evicted_key, _ = self._summaries.popitem(last=False)
+            
+            # Use the variable in your logger!
+            logger.debug(
+                "Evicted oldest summary memory for user '%s', session '%s' to stay under limit.", 
+                evicted_key[0], 
+                evicted_key[1]
+            )
+            
         return merged
 
     @staticmethod

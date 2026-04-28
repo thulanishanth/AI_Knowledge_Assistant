@@ -15,8 +15,6 @@ from app.memory.window_memory import WindowMemory
 from app.observability.metrics import metrics
 from app.observability.structured_logger import log_event
 from app.observability.tracing import tracing
-from app.observability.file_dumper import dump_conversation
-from app.observability.query_observer import estimate_tokens
 
 logger = get_logger(__name__)
 
@@ -46,6 +44,7 @@ class MemoryManager:
         user_id: str,
         session_id: str,
         user_query: str,
+        tenant_id: str = "default" 
     ) -> list[dict[str, Any]]:
         """Retrieve hybrid vector context with resilient fallback behavior."""
         with tracing.span("memory.fetch_relevant_context"), metrics.timer("memory_retrieval"):
@@ -54,6 +53,7 @@ class MemoryManager:
                     user_id=user_id,
                     session_id=session_id,
                     query=user_query,
+                    topic_filter=tenant_id,
                 )
             except Exception as exc:
                 logger.exception("Vector retrieval failed; using empty fallback.")
@@ -66,7 +66,7 @@ class MemoryManager:
         user_query: str,
         include_vector: bool = True,
         rag_context: str | None = None,
-        tenant_id: str = "hotel", 
+        tenant_id: str = "default", 
     ) -> dict[str, str | list[dict[str, object]]]:
         """Assemble vector, window, and summary context (NO LEGACY RAG DUMP!)."""
         with tracing.span("memory.get_context_for_llm"), metrics.timer("memory_context_assembly"):
@@ -74,7 +74,7 @@ class MemoryManager:
             tasks: list[Any] = []
 
             if include_vector:
-                tasks.append(self.fetch_relevant_context(user_id, session_id, user_query))
+                tasks.append(self.fetch_relevant_context(user_id, session_id, user_query, tenant_id))
 
             tasks.extend(
                 [
@@ -156,24 +156,7 @@ class MemoryManager:
                 )
 
             await asyncio.gather(*background_tasks, return_exceptions=True)
-
-            try:
-                dump_payload = "\n".join(
-                    part for part in (question, answer, full_prompt, rag_context, generated_sql) if part
-                )
-                await dump_conversation(
-                    user_query=question,
-                    ai_response=answer,
-                    full_prompt=full_prompt,
-                    rag_context=rag_context,
-                    generated_sql=generated_sql,
-                    execution_status=execution_status,
-                    human_readable_prompt=full_prompt,
-                    llm_model_name=settings.hf_model,
-                    estimated_tokens=estimate_tokens(dump_payload),
-                )
-            except Exception as exc:
-                logger.error("Conversation dump failed: %s", exc)
+        
                     
     def detect_memory_importance(self, question: str, answer: str) -> float:
         text = f"{question} {answer}".lower()
