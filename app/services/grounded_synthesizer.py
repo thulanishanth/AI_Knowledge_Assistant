@@ -1,10 +1,10 @@
-#app/services/grounded_synthesizer.py
+# app/services/grounded_synthesizer.py
 from __future__ import annotations
 import json
-import re
 from typing import Any
-
+import asyncio
 from app.services.llm_client import call_llm
+from app.services.confidence_checker import confidence_checker
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -12,11 +12,11 @@ logger = get_logger(__name__)
 class GroundedSynthesizer:
     """
     Produces answers strictly grounded in the database rows.
-    Validates the answer against the data before returning it.
+    Validates the answer against the data using Neuro-Symbolic verification.
     Uses a two-pass approach: generate → verify → fallback if hallucinated.
     """
 
-    def synthesize(
+    async def synthesize(
         self,
         question: str,
         rows: list[dict[str, Any]],
@@ -28,18 +28,32 @@ class GroundedSynthesizer:
             return "No matching records were found for your query.", 0.95
 
         data_preview = json.dumps(rows[:5], default=str)
-
+        
         # Pass 1: Generate the standard business answer
-        answer = self._generate(question, data_preview, row_count, executed_sql, metric_context)
+        answer = await asyncio.to_thread(
+            self._generate, question, data_preview, row_count, executed_sql, metric_context
+        )
 
-        # Pass 2: Verify answer is grounded mathematically
-        confidence = self._verify_grounding(answer, rows, data_preview)
+        # Pass 2: Verify answer mathematically using Neuro-Symbolic logic
+        confidence = await confidence_checker.check_confidence(
+            answer=answer, 
+            context_rows=rows, 
+            row_count=row_count
+        )
 
         # Pass 3: If low confidence (hallucination detected), regenerate with a strict prompt
         if confidence < 0.6:
             logger.warning("Low grounding confidence (%.2f) — AI hallucinated. Regenerating strictly.", confidence)
-            answer = self._generate_strict(question, data_preview, row_count, executed_sql)
-            confidence = self._verify_grounding(answer, rows, data_preview)
+            answer = await asyncio.to_thread(
+                self._generate_strict, question, data_preview, row_count
+            )
+
+            # Re-verify the strict answer
+            confidence = await confidence_checker.check_confidence(
+                answer=answer, 
+                context_rows=rows,
+                row_count=row_count
+            )
 
         return answer, confidence
 
@@ -82,7 +96,6 @@ Answer:""".strip()
         question: str,
         data_preview: str,
         row_count: int,
-        executed_sql: str,
     ) -> str:
         """Stricter fallback prompt for when the first generation hallucinates."""
         prompt = f"""
@@ -102,60 +115,3 @@ Answer:""".strip()
             return call_llm(prompt=prompt, max_tokens=100, temperature=0.0)
         except Exception:
             return f"The query returned {row_count} result(s). Please see the data below."
-
-    def _verify_grounding(
-        self,
-        answer: str,
-        rows: list[dict[str, Any]],
-        data_preview: str,
-    ) -> float:
-        """
-        Check if the numbers in the answer actually appear in the data.
-        Returns 0.0-1.0 confidence score.
-        """
-        def extract_floats(text: str) -> set[float]:
-            # Remove commas and dollar signs used as formatting
-            clean_text = text.replace(",", "").replace("$", "").replace("%", "")
-            matches = re.findall(r'\b\d+(?:\.\d+)?\b', clean_text)
-
-            floats = set()
-            for m in matches:
-                try:
-                    floats.add(float(m))
-                except ValueError:
-                    pass
-            return floats
-
-        answer_numbers = extract_floats(answer)
-        data_numbers = extract_floats(data_preview)
-
-        # Remove small numbers (like years) from consideration as they skew the hallucination ratio
-        answer_numbers = {n for n in answer_numbers if n > 2100 or n < 1900}
-        data_numbers = {n for n in data_numbers if n > 2100 or n < 1900}
-
-        if not answer_numbers:
-            return 0.9
-
-        # Check overlap mathematically
-        matched = set()
-        for a_num in answer_numbers:
-            for d_num in data_numbers:
-                # Allow for minor rounding differences (e.g. 15000 vs 15000.0)
-                if abs(a_num - d_num) < 0.1:
-                    matched.add(a_num)
-                    break
-
-        overlap_ratio = len(matched) / len(answer_numbers) if answer_numbers else 1.0
-
-        hallucination_phrases = [
-            "significantly higher", "dramatically lower", "strong growth",
-            "substantial increase", "trend shows", "pattern indicates",
-            "projected", "forecast", "expected to"
-        ]
-        has_hallucination_signal = any(p in answer.lower() for p in hallucination_phrases)
-
-        score = overlap_ratio
-        if has_hallucination_signal:
-            score -= 0.3
-
-        return max(0.0, min(1.0, score))

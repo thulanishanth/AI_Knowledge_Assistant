@@ -8,7 +8,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.core.settings import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)

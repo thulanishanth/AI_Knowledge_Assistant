@@ -8,7 +8,7 @@ Columns are identified as PII by name heuristics that work across domains.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from app.core.settings import settings

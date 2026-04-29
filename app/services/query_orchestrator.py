@@ -1009,8 +1009,7 @@ class QueryOrchestrator:
                 sq_synthesis = "Data retrieved successfully."
                 if execution.rows:
                     try:
-                        sq_synthesis, synth_conf = await asyncio.to_thread(
-                            self._grounded_synthesizer.synthesize,
+                        sq_synthesis, synth_conf = await self._grounded_synthesizer.synthesize(
                             question=sq.question,
                             rows=execution.rows,
                             row_count=execution.row_count,
