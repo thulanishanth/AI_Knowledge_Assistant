@@ -8,6 +8,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+import sqlglot
+from sqlglot import exp
+
 from app.core.cache import TTLCache
 from app.core.logging import get_logger
 from app.core.settings import settings
@@ -67,7 +70,7 @@ class QueryResponse:
 
 
 def _extract_dialogue_fields(sql: str, question: str) -> dict:
-    sql_lower = sql.lower()
+    """Uses sqlglot AST parsing to deterministically extract the state."""
     q_lower = question.lower()
 
     metric = None
@@ -76,26 +79,60 @@ def _extract_dialogue_fields(sql: str, question: str) -> dict:
             metric = candidate
             break
 
-    date_range = None
-    date_match = re.search(r"\b(20\d{2})\b", sql)
-    if date_match:
-        date_range = date_match.group(1)
-    month_match = re.search(r"month\s*=\s*['\"]?(\w+)['\"]?", sql_lower)
-    if month_match:
-        date_range = (date_range or "") + f" {month_match.group(1)}"
+    date_parts = []
+    filters: dict[str, Any] = {} 
 
-    filters: dict[str, str] = {}
-    for m in re.finditer(r"(\w+)\s*=\s*'([^']+)'", sql):
-        col, val = m.group(1), m.group(2)
-        col_lower = col.lower()
-        if col_lower in _RULE_INJECTED_COLUMNS:
-            continue
-        if val.lower() in q_lower or col_lower in q_lower:
-            filters[col] = val
+    try:
+        statements = [stmt for stmt in sqlglot.parse(sql, read="mysql") if stmt is not None]
+        
+        for parsed_ast in statements:
+            for condition in parsed_ast.find_all(exp.Condition):
+                
+                # UPDATED: Now gracefully preserves >=, <=, and BETWEEN for normal columns too
+                def _store_val(col_node, operator_str, val_payload):
+                    col_name = col_node.name.lower() if isinstance(col_node, exp.Column) else col_node.sql().lower()
+                    if col_name in _RULE_INJECTED_COLUMNS:
+                        return
+                    
+                    if "year" in col_name or "date" in col_name or "month" in col_name:
+                        date_parts.append(f"{col_name} {operator_str} {val_payload}")
+                    else:
+                        if operator_str == "=":
+                            filters[col_name] = val_payload
+                        elif operator_str == "IN":
+                            filters[col_name] = val_payload # Save as Python list
+                        else:
+                            # Prepend the operator so EntityTracker knows it's an inequality/range
+                            filters[col_name] = f"{operator_str} {val_payload}"
+
+                # A. Handle Equality (=)
+                if isinstance(condition, exp.EQ) and isinstance(condition.left, (exp.Column, exp.Func)) and isinstance(condition.right, exp.Literal):
+                    _store_val(condition.left, "=", condition.right.name)
+
+                # B. Handle Inequalities (>, >=, <, <=)
+                elif isinstance(condition, (exp.GT, exp.GTE, exp.LT, exp.LTE)) and isinstance(condition.left, (exp.Column, exp.Func)) and isinstance(condition.right, exp.Literal):
+                    op_map = {exp.GT: ">", exp.GTE: ">=", exp.LT: "<", exp.LTE: "<="}
+                    _store_val(condition.left, op_map[type(condition)], condition.right.name)
+
+                # C. Handle BETWEEN clauses (FIXED: sqlglot v29 low/high args)
+                elif isinstance(condition, exp.Between) and isinstance(condition.this, (exp.Column, exp.Func)):
+                    low = condition.args.get("low")   # <-- Fixed
+                    high = condition.args.get("high") # <-- Fixed
+                    if isinstance(low, exp.Literal) and isinstance(high, exp.Literal):
+                        _store_val(condition.this, "BETWEEN", f"{low.name} AND {high.name}")
+
+                # D. Handle IN clauses
+                elif isinstance(condition, exp.In) and isinstance(condition.this, exp.Column):
+                    values = [v.name for v in condition.expressions if isinstance(v, exp.Literal)]
+                    _store_val(condition.this, "IN", values)
+
+    except Exception as e:
+        logger.warning("SQLglot failed to parse query for dialogue state. SQL: %s. Error: %s", sql, e)
+        pass
 
     return {
         "metric": metric,
-        "date_range": date_range.strip() if date_range else None,
+        "date_range": " AND ".join(date_parts) if date_parts else None,
         "filters": filters,
     }
 

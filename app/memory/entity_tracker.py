@@ -1,13 +1,6 @@
 # app/memory/entity_tracker.py
 from __future__ import annotations
-from dataclasses import dataclass
-
-@dataclass
-class TrackedEntity:
-    """An entity that has been mentioned and resolved in the conversation."""
-    name: str              # e.g., "2018", "Offline"
-    entity_type: str       # e.g., "arrival_year", "market_segment_type"
-    sql_filter: str        # e.g., "arrival_year = '2018'"
+from typing import Any
 
 class EntityTracker:
     """
@@ -15,9 +8,11 @@ class EntityTracker:
     Prevents the AI from forgetting active filters during follow-up questions.
     """
     def __init__(self) -> None:
-        self.entities: list[TrackedEntity] = []
+        # Using a dictionary directly allows us to seamlessly store lists (IN clauses), 
+        # strings (EQ), and operator strings (>, <, BETWEEN).
+        self.entities: dict[str, Any] = {}
 
-    def load_from_state(self, filters_dict: dict[str, str] | None) -> None:
+    def load_from_state(self, filters_dict: dict[str, Any] | None) -> None:
         """Loads entities from the previous query's extracted SQL filters."""
         if not filters_dict:
             return
@@ -27,24 +22,33 @@ class EntityTracker:
             if col.lower() in ["tenant_id", "table_schema", "table_name"]:
                 continue
 
-            self.entities.append(TrackedEntity(
-                name=str(val),
-                entity_type=col,
-                sql_filter=f"{col} = '{val}'"
-            ))
-
+            # Directly map the column to its value payload (string, list, or operator string)
+            self.entities[col] = val
+            
     def to_context_block(self) -> str:
-        """Render active entities as a context block for the LLM Planner/Rewriter."""
-        if not self.entities:
+        """Converts active entities into a deterministic string for the LLM prompt."""
+        if not hasattr(self, "entities") or not self.entities:
             return ""
-
-        lines = [
-            "ACTIVE CONVERSATION ENTITIES (Crucial for follow-up questions).",
-            "Use these to resolve pronouns like 'it', 'that year', 'that segment':"
-        ]
-
-        for e in self.entities:
-            clean_type = e.entity_type.replace('_', ' ').title()
-            lines.append(f"  - {clean_type}: '{e.name}' (Context Filter: {e.sql_filter})")
-
-        return "\n".join(lines)
+            
+        lines = []
+        for col, val in self.entities.items():
+            
+            # 1. Special handling for the date block
+            if col == "date_period":
+                lines.append(f"- DATE RANGE: {val}")
+                continue
+                
+            # 2. Handle IN clauses safely (Python lists -> SQL IN syntax)
+            if isinstance(val, list):
+                formatted_vals = ", ".join(f"'{v}'" for v in val)
+                lines.append(f"- {col} IN ({formatted_vals})")
+                
+            # 3. Handle Inequalities and BETWEEN seamlessly
+            elif isinstance(val, str) and val.startswith((">", "<", ">=", "<=", "BETWEEN")):
+                lines.append(f"- {col} {val}")
+                
+            # 4. Standard equality fallback
+            else:
+                lines.append(f"- {col} = '{val}'")
+                
+        return "CURRENT ACTIVE FILTERS:\n" + "\n".join(lines)
