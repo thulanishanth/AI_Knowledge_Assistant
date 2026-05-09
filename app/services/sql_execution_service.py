@@ -34,10 +34,31 @@ class SQLExecutionService:
     and flat files (CSV, Parquet, Excel, JSON) via DuckDB.
     """
 
+    @staticmethod
+    def _infer_dialect(source_uri: str, category: str) -> str:
+        """Determines the correct sqlglot dialect based on the connection URI."""
+        if category in ["tabular", "tabular_file", "cloud_storage"]:
+            return "duckdb"
+            
+        uri_lower = source_uri.lower()
+        if "postgres" in uri_lower:
+            return "postgres"
+        if "mysql" in uri_lower:
+            return "mysql"
+        if "snowflake" in uri_lower:
+            return "snowflake"
+        if "sqlite" in uri_lower:
+            return "sqlite"
+            
+        return "mysql"  # Safe generic fallback
+
     def execute(self, sql_query: str, source_uri: str, category: str = "relational_db") -> QueryExecutionResult:
         """Routes the query to the correct runtime engine and executes it."""
         started = time.perf_counter()
-        bounded_sql = self._ensure_limit(sql_query)
+        
+        # Dynamically determine the dialect
+        dialect = self._infer_dialect(source_uri, category)
+        bounded_sql = self._ensure_limit(sql_query, dialect)
         
         try:
             # 1. Route to the correct Execution Engine
@@ -53,15 +74,15 @@ class SQLExecutionService:
             truncated = len(rows) >= fetch_limit
             
             # --- SMART LOGIC: Show COUNT(*) for massive truncated raw datasets ---
-            is_aggregated = self._is_aggregated(sql_query)
+            is_aggregated = self._is_aggregated(sql_query, dialect)
             
             if truncated and not is_aggregated:
-                # Strip limits via AST and run a COUNT query
+                # Strip limits via AST and run a COUNT query using the correct dialect
                 try:
-                    ast_no_limit = sqlglot.parse_one(sql_query, read="mysql")
+                    ast_no_limit = sqlglot.parse_one(sql_query, read=dialect)
                     if ast_no_limit.args.get("limit"):
                         ast_no_limit.args["limit"] = None
-                    clean_sql = ast_no_limit.sql(dialect="mysql")
+                    clean_sql = ast_no_limit.sql(dialect=dialect)
                 except Exception as e:
                     logger.warning("Failed to strip limit using AST: %s. Using raw query.", e)
                     clean_sql = sql_query.strip().rstrip(";")
@@ -118,14 +139,12 @@ class SQLExecutionService:
         except ImportError:
             raise ImportError("DuckDB is missing. Run: pip install duckdb")
             
-        # The LLM generated SQL expecting a table name. We use the file's stem as the table.
         table_name = Path(file_path).stem.replace(" ", "_")
         ext = Path(file_path).suffix.lower()
         
         conn = duckdb.connect(database=':memory:')
         
         try:
-            # Mount the file as a virtual table in DuckDB
             if ext == '.csv':
                 conn.execute(f"CREATE VIEW {table_name} AS SELECT * FROM read_csv_auto('{file_path}')")
             elif ext == '.parquet':
@@ -139,10 +158,7 @@ class SQLExecutionService:
             else:
                 raise ValueError(f"DuckDB engine cannot directly mount {ext} files.")
             
-            # Execute the LLM's query against the virtual table
             result_df = conn.execute(sql_query).fetchdf()
-            
-            # Handle timestamps/dates securely for JSON serialization
             result_df = result_df.astype(object).where(result_df.notnull(), None)
             return result_df.to_dict(orient='records')
             
@@ -152,17 +168,13 @@ class SQLExecutionService:
     def _execute_sqlalchemy(self, sql_query: str, uri: str) -> list[dict[str, Any]]:
         """Executes SQL against standard remote relational databases using the shared connection pool."""
         try:
-            # We now safely use the db_manager imported at the top of the file
             with db_manager.engine.connect() as conn:
-                
-                # Apply timeout constraints
                 if "mysql" in uri:
                     conn.execute(sa.text(f"SET SESSION MAX_EXECUTION_TIME={settings.db_query_timeout_ms}"))
                 elif "postgres" in uri:
                     conn.execute(sa.text(f"SET statement_timeout = {settings.db_query_timeout_ms}"))
                     
                 result = conn.execute(sa.text(sql_query))
-                
                 return [dict(row._mapping) for row in result]
                 
         except SQLAlchemyError as e:
@@ -170,40 +182,35 @@ class SQLExecutionService:
             raise RuntimeError(f"Database execution error: {e}") from e
 
     @staticmethod
-    def _ensure_limit(sql_query: str) -> str:
-        """Safely appends a LIMIT clause using AST parsing."""
+    def _ensure_limit(sql_query: str, dialect: str) -> str:
+        """Safely appends a LIMIT clause using AST parsing with the correct dialect."""
         fetch_limit = settings.max_query_results + 1
         try:
-            parsed = sqlglot.parse_one(sql_query, read="mysql")
+            parsed = sqlglot.parse_one(sql_query, read=dialect)
             
-            # If the AST already has a LIMIT node, leave it alone
             if parsed.args.get("limit"):
-                return parsed.sql(dialect="mysql") + ";"
+                return parsed.sql(dialect=dialect) + ";"
                 
-            # Otherwise, mathematically attach a limit to the tree
             parsed = parsed.limit(fetch_limit)
-            return parsed.sql(dialect="mysql") + ";"
+            return parsed.sql(dialect=dialect) + ";"
             
         except Exception as e:
             logger.warning("AST limit injection failed: %s. Using string fallback.", e)
-            # Fallback string manipulation if parsing fails
             sql = (sql_query or "").strip().rstrip(";")
             if "limit " not in sql.lower():
                 return f"{sql} LIMIT {fetch_limit};"
             return f"{sql};"
 
     @staticmethod
-    def _is_aggregated(sql_query: str) -> bool:
-        """Determines if a query is aggregated by searching the AST."""
+    def _is_aggregated(sql_query: str, dialect: str) -> bool:
+        """Determines if a query is aggregated by searching the AST using the correct dialect."""
         try:
-            parsed = sqlglot.parse_one(sql_query, read="mysql")
-            # Look for GROUP BY node or any Aggregate Function node (COUNT, SUM, AVG)
+            parsed = sqlglot.parse_one(sql_query, read=dialect)
             has_group = bool(parsed.find(exp.Group))
             has_agg = bool(parsed.find(exp.AggFunc))
             return has_group or has_agg
         except Exception as e:
             logger.warning("AST aggregation check failed: %s. Using string fallback.", e)
-            # Fallback string match if parsing fails
             sq = sql_query.lower()
             return any(k in sq for k in ["group by", "count(", "sum(", "avg(", "max(", "min("])
 

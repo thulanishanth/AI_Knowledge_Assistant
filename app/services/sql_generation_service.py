@@ -138,28 +138,30 @@ class SQLGenerationService:
             
         value = text.strip()
         
+        # Map dialect for sqlglot compatibility
+        safe_dialect = dialect.lower()
+        if safe_dialect == "postgresql":
+            safe_dialect = "postgres"
+        
         # 1. Fast, non-regex extraction of Markdown fenced code blocks
         if "```" in value:
-            parts = value.split("```")  # <--- FIX: Ensure this is on one line!
+            parts = value.split("```")
             for part in parts:
                 part = part.strip()
                 if part.lower().startswith("sql"):
                     part = part[3:].strip()
-                # If we find a block starting with SELECT or WITH, that's our target
                 if part.lower().startswith("select") or part.lower().startswith("with"):
                     value = part
                     break
         
         # 2. Use sqlglot to parse, drop comments natively, and compile the first valid statement
         try:
-            # Parse the text into statements
-            statements = sqlglot.parse(value, read=dialect)
+            statements = sqlglot.parse(value, read=safe_dialect)
             
             for stmt in statements:
                 if stmt:
-                    # Compiling it back to string natively drops all -- and /* comments
-                    return stmt.sql(dialect=dialect) + ";"
-                    
+                    return stmt.sql(dialect=safe_dialect) + ";"
+    
         except Exception as e:
             logger.warning("sqlglot failed to extract query: %s. Falling back to raw text.", e)
             
