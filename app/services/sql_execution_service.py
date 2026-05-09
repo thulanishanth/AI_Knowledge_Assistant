@@ -1,19 +1,19 @@
 # app/services/sql_execution_service.py
 from __future__ import annotations
 
-import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# --- GLOBAL IMPORTS ---
+import sqlglot
+from sqlglot import exp
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.settings import settings
 from app.core.logging import get_logger
-from app.infrastructure.database import db_manager  # <--- Centralized connection manager!
+from app.infrastructure.database import db_manager  # Centralized connection manager
 
 logger = get_logger(__name__)
 
@@ -53,13 +53,19 @@ class SQLExecutionService:
             truncated = len(rows) >= fetch_limit
             
             # --- SMART LOGIC: Show COUNT(*) for massive truncated raw datasets ---
-            is_aggregated = bool(
-                re.search(r"\bgroup by\b|\b(count|sum|avg|max|min)\s*\(", sql_query, re.IGNORECASE)
-            )
+            is_aggregated = self._is_aggregated(sql_query)
             
             if truncated and not is_aggregated:
-                # Strip limits and run a COUNT query
-                clean_sql = re.sub(r"\blimit\s+\d+\b", "", sql_query, flags=re.IGNORECASE).strip().rstrip(";")
+                # Strip limits via AST and run a COUNT query
+                try:
+                    ast_no_limit = sqlglot.parse_one(sql_query, read="mysql")
+                    if ast_no_limit.args.get("limit"):
+                        ast_no_limit.args["limit"] = None
+                    clean_sql = ast_no_limit.sql(dialect="mysql")
+                except Exception as e:
+                    logger.warning("Failed to strip limit using AST: %s. Using raw query.", e)
+                    clean_sql = sql_query.strip().rstrip(";")
+                
                 count_sql = f"SELECT COUNT(*) AS `Total_Matching_Records` FROM ({clean_sql}) AS subq;"
                 
                 if category in ["tabular", "tabular_file", "cloud_storage"]:
@@ -165,12 +171,41 @@ class SQLExecutionService:
 
     @staticmethod
     def _ensure_limit(sql_query: str) -> str:
-        """Safely appends a LIMIT clause if one does not exist."""
-        sql = (sql_query or "").strip().rstrip(";")
-        if re.search(r"\blimit\b", sql, re.IGNORECASE):
+        """Safely appends a LIMIT clause using AST parsing."""
+        fetch_limit = settings.max_query_results + 1
+        try:
+            parsed = sqlglot.parse_one(sql_query, read="mysql")
+            
+            # If the AST already has a LIMIT node, leave it alone
+            if parsed.args.get("limit"):
+                return parsed.sql(dialect="mysql") + ";"
+                
+            # Otherwise, mathematically attach a limit to the tree
+            parsed = parsed.limit(fetch_limit)
+            return parsed.sql(dialect="mysql") + ";"
+            
+        except Exception as e:
+            logger.warning("AST limit injection failed: %s. Using string fallback.", e)
+            # Fallback string manipulation if parsing fails
+            sql = (sql_query or "").strip().rstrip(";")
+            if "limit " not in sql.lower():
+                return f"{sql} LIMIT {fetch_limit};"
             return f"{sql};"
-        return f"{sql} LIMIT {settings.max_query_results + 1};"
 
+    @staticmethod
+    def _is_aggregated(sql_query: str) -> bool:
+        """Determines if a query is aggregated by searching the AST."""
+        try:
+            parsed = sqlglot.parse_one(sql_query, read="mysql")
+            # Look for GROUP BY node or any Aggregate Function node (COUNT, SUM, AVG)
+            has_group = bool(parsed.find(exp.Group))
+            has_agg = bool(parsed.find(exp.AggFunc))
+            return has_group or has_agg
+        except Exception as e:
+            logger.warning("AST aggregation check failed: %s. Using string fallback.", e)
+            # Fallback string match if parsing fails
+            sq = sql_query.lower()
+            return any(k in sq for k in ["group by", "count(", "sum(", "avg(", "max(", "min("])
 
 _execution_service = SQLExecutionService()
 

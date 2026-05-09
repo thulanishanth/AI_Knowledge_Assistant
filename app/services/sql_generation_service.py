@@ -1,9 +1,10 @@
 # app/services/sql_generation_service.py
 from __future__ import annotations
 import asyncio
-import re
 from dataclasses import dataclass, field
 from typing import Any
+
+import sqlglot
 
 from app.infrastructure.repositories.schema_repository import TableSchema
 from app.security.sql_guard import SqlGuard, SqlValidationResult
@@ -23,6 +24,7 @@ class SqlGenerationResult:
     )
     strategy: str = "none"
     notice: str | None = None
+    raw_llm_output: str = ""  # Added this so Orchestrator can log the raw prompt
 
     @property
     def is_valid(self) -> bool:
@@ -81,7 +83,7 @@ class SQLGenerationService:
         except Exception as e:
             return SqlGenerationResult(validation=SqlValidationResult(is_valid=False, errors=[str(e)]))
 
-        sql_candidate = self._extract_query(candidate)
+        sql_candidate = self._extract_query(candidate, schema.dialect)
 
         allowed = set(schema.schema_dict.keys())
         validation = self._sql_guard.validate(
@@ -92,7 +94,11 @@ class SQLGenerationService:
 
         if validation.is_valid:
             return SqlGenerationResult(
-                sql=validation.normalized_sql, validation=validation, strategy="llm_primary", notice=notice
+                sql=validation.normalized_sql, 
+                validation=validation, 
+                strategy="llm_primary", 
+                notice=notice,
+                raw_llm_output=candidate
             )
 
         repair_prompt = self._prompt_builder.build_sql_repair_prompt(
@@ -107,9 +113,9 @@ class SQLGenerationService:
         try:
             repaired, repair_notice = await self._robust_generate(prompt=repair_prompt, model=model, is_cloud=is_cloud)
         except Exception as e:
-             return SqlGenerationResult(validation=SqlValidationResult(is_valid=False, errors=[str(e)]), notice=notice)
+             return SqlGenerationResult(validation=SqlValidationResult(is_valid=False, errors=[str(e)]), notice=notice, raw_llm_output=candidate)
 
-        repaired_sql = self._extract_query(repaired)
+        repaired_sql = self._extract_query(repaired, schema.dialect)
         repaired_validation = self._sql_guard.validate(
             repaired_sql,
             dialect=schema.dialect,
@@ -118,25 +124,45 @@ class SQLGenerationService:
 
         return SqlGenerationResult(
             sql=repaired_validation.normalized_sql if repaired_validation.is_valid else repaired_sql,
-            validation=repaired_validation, strategy="llm_repair", notice=repair_notice or notice
+            validation=repaired_validation, 
+            strategy="llm_repair", 
+            notice=repair_notice or notice,
+            raw_llm_output=repaired
         )
 
     @staticmethod
-    def _extract_query(text: str) -> str:
-        if not text: return ""
-        value = text.strip()
-        fenced = re.search(r"`{3}(?:\w+)?\n?(.*?)`{3}", value, re.IGNORECASE | re.DOTALL)
-        if fenced: 
-            extracted = fenced.group(1).strip()
-        else: 
-            extracted = value
+    def _extract_query(text: str, dialect: str = "mysql") -> str:
+        """Extracts SQL from LLM output and sanitizes it using sqlglot AST parsing."""
+        if not text:
+            return ""
             
-        # Strip all SQL comments to prevent downstream guardrail trips
-        extracted = re.sub(r"--.*?(\n|$)", "\n", extracted)
-        extracted = re.sub(r"/\*.*?\*/", "", extracted, flags=re.DOTALL)
-        extracted = extracted.strip()
-
-        if re.search(r"^\s*(select|with)\b", extracted, re.IGNORECASE):
-            if ";" in extracted: extracted = extracted.split(";", 1)[0].strip()
-            return f"{extracted};"
-        return extracted
+        value = text.strip()
+        
+        # 1. Fast, non-regex extraction of Markdown fenced code blocks
+        if "```" in value:
+            parts = value.split("```")  # <--- FIX: Ensure this is on one line!
+            for part in parts:
+                part = part.strip()
+                if part.lower().startswith("sql"):
+                    part = part[3:].strip()
+                # If we find a block starting with SELECT or WITH, that's our target
+                if part.lower().startswith("select") or part.lower().startswith("with"):
+                    value = part
+                    break
+        
+        # 2. Use sqlglot to parse, drop comments natively, and compile the first valid statement
+        try:
+            # Parse the text into statements
+            statements = sqlglot.parse(value, read=dialect)
+            
+            for stmt in statements:
+                if stmt:
+                    # Compiling it back to string natively drops all -- and /* comments
+                    return stmt.sql(dialect=dialect) + ";"
+                    
+        except Exception as e:
+            logger.warning("sqlglot failed to extract query: %s. Falling back to raw text.", e)
+            
+        # 3. Ultimate fallback if sqlglot fails (e.g., severe syntax error)
+        # Just return the raw string to let the SqlGuard catch the syntax error
+        return value.strip()
