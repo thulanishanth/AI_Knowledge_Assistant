@@ -41,6 +41,7 @@ htmlcov/
 # OS files
 .DS_Store
 Thumbs.db
+.chroma
 
 # Local databases
 *.sqlite3
