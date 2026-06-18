@@ -1,7 +1,6 @@
 {
   "extends": "stylelint-config-standard",
   "rules": {
-    "color-hex-length": "long",
-    "font-family-no-missing-generic-family-keyword": true
+    "declaration-block-single-line-max-declarations": null
   }
 }

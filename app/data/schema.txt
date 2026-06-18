@@ -1,19 +1,26 @@
 # Database Schema for AI Knowledge Assistant
 
--- Users Table
-CREATE TABLE users (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    name VARCHAR(100),
-    email VARCHAR(100) UNIQUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+# Database Schema for AI Knowledge Assistant
 
--- Orders Table
-CREATE TABLE orders (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    user_id INT,
-    product VARCHAR(100),
-    quantity INT,
-    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id)
+-- Hotel Reservations Table
+CREATE TABLE hotel_reservations (
+    Booking_ID VARCHAR(50) PRIMARY KEY,
+    no_of_adults INT,
+    no_of_children INT,
+    no_of_weekend_nights INT,
+    no_of_week_nights INT,
+    type_of_meal_plan VARCHAR(100),
+    required_car_parking_space INT,
+    room_type_reserved VARCHAR(100),
+    lead_time INT,
+    arrival_year INT,
+    arrival_month INT,
+    arrival_date INT,
+    market_segment_type VARCHAR(100),
+    repeated_guest INT,
+    no_of_previous_cancellations INT,
+    no_of_previous_bookings_not_canceled INT,
+    avg_price_per_room FLOAT,
+    no_of_special_requests INT,
+    booking_status VARCHAR(100)
 );

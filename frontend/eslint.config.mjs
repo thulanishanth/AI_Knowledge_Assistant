@@ -1,22 +1,21 @@
+//frontend/eslint.config.mjs
+import js from "@eslint/js";
 import globals from "globals";
-import pluginJs from "@eslint/js";
+import prettier from "eslint-config-prettier";
+import prettierPlugin from "eslint-plugin-prettier";
 
 export default [
+  js.configs.recommended,
   {
-    // Apply these rules to all JavaScript files
-    files: ["**/*.js"],
-    languageOptions: { 
-      // Tells ESLint this code runs in a browser (allows window, document, fetch)
-      globals: globals.browser 
-    }
-  },
-  // Use industry-standard baseline rules
-  pluginJs.configs.recommended,
-  {
-    // Custom overrides
+    languageOptions: {
+      globals: globals.browser,
+    },
+    plugins: {
+      prettier: prettierPlugin,
+    },
     rules: {
-      "no-unused-vars": "warn",
-      "no-console": "off" // Allows you to use console.log() for debugging
-    }
-  }
+      "prettier/prettier": "error",
+    },
+  },
+  prettier,
 ];
